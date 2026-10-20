@@ -1,0 +1,156 @@
+"""Refresh pipeline: discover -> download -> load -> record.
+
+Every file attempted leaves a `source_files` row, success or not, so the Sources
+tab is an honest account of what worked. A file whose sha256 matches the last
+successful load is skipped. Re-loading a changed file replaces that file's
+metrics (matched on source_key + file_name), never duplicates them.
+"""
+import logging
+import threading
+import traceback
+from datetime import datetime, timezone
+
+from sqlalchemy import delete, insert, select
+from sqlalchemy.orm import Session
+
+from app.db import SessionLocal
+from app.models import Metric, Org, RefreshRun, SourceFile
+from app.reference import seed_orgs
+from app.sources import fetch
+from app.sources.discover import discover
+from app.sources.loaders import LOADERS, LoadResult
+from app.sources.registry import SOURCES, SourceSpec
+
+log = logging.getLogger("pipeline")
+_lock = threading.Lock()
+CHUNK = 5000
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def _store(db: Session, spec: SourceSpec, sf: SourceFile, res: LoadResult) -> None:
+    old_ids = [r for (r,) in db.execute(
+        select(SourceFile.id).where(SourceFile.source_key == spec.key, SourceFile.file_name == sf.file_name, SourceFile.id != sf.id)
+    )]
+    if old_ids:
+        db.execute(delete(Metric).where(Metric.source_file_id.in_(old_ids)))
+    for code, (name, org_type) in res.orgs.items():
+        org = db.get(Org, code)
+        if org is None:
+            db.add(Org(ods_code=code, name=name, org_type=org_type, first_seen_source=spec.key))
+        else:
+            if name and not org.name:
+                org.name = name
+            if org_type and not org.org_type:
+                org.org_type = org_type
+    db.flush()
+    rows = [dict(m, source_file_id=sf.id) for m in res.metrics]
+    for i in range(0, len(rows), CHUNK):
+        db.execute(insert(Metric), rows[i:i + CHUNK])
+    sf.row_count = res.row_count
+    sf.metric_rows = len(rows)
+    sf.profile = res.profile
+    sf.mapper_status = res.mapper_status
+    sf.status = "loaded"
+
+
+def _members(spec: SourceSpec, url: str, data: bytes) -> list[tuple[str, bytes]]:
+    if spec.kind == "zip_csv" or url.lower().split("?")[0].endswith(".zip"):
+        return fetch.csv_members(data)
+    return [(url.rsplit("/", 1)[-1], data)]
+
+
+def run_source(db: Session, key: str) -> dict:
+    spec = SOURCES[key]
+    summary = {"source": key, "files": 0, "loaded": 0, "unchanged": 0, "failed": 0, "notes": []}
+    found = discover(spec)
+    summary["notes"] = found.notes
+    if not found.files:
+        db.add(SourceFile(source_key=key, status="discovery_failed", licence=spec.licence,
+                          error="; ".join(found.notes) or "no files found",
+                          profile={"links_seen": found.links_seen[:80]}))
+        db.commit()
+        summary["failed"] += 1
+        return summary
+
+    loader = LOADERS.get(spec.loader, LOADERS["generic"])
+    for f in found.files[:3]:  # newest-first lists; cap per run
+        summary["files"] += 1
+        try:
+            data = fetch.download(f.url)
+        except Exception as exc:  # noqa: BLE001
+            db.add(SourceFile(source_key=key, page_url=f.page_url, file_url=f.url, status="download_failed",
+                              error=str(exc)[:2000], licence=spec.licence))
+            db.commit()
+            summary["failed"] += 1
+            continue
+        digest = fetch.sha256(data)
+        try:
+            members = _members(spec, f.url, data)
+        except Exception as exc:  # noqa: BLE001
+            db.add(SourceFile(source_key=key, page_url=f.page_url, file_url=f.url, sha256=digest, size_bytes=len(data),
+                              status="parse_failed", error=f"unzip: {exc}", licence=spec.licence))
+            db.commit()
+            summary["failed"] += 1
+            continue
+        for name, blob in members:
+            prior = db.execute(select(SourceFile).where(
+                SourceFile.source_key == key, SourceFile.file_name == name,
+                SourceFile.sha256 == fetch.sha256(blob), SourceFile.status == "loaded")).first()
+            if prior:
+                summary["unchanged"] += 1
+                continue
+            sf = SourceFile(source_key=key, page_url=f.page_url, file_url=f.url, file_name=name,
+                            sha256=fetch.sha256(blob), size_bytes=len(blob), status=f.via, licence=spec.licence)
+            db.add(sf)
+            db.flush()
+            try:
+                res = loader(key, name, blob, spec.default_period)
+                _store(db, spec, sf, res)
+                summary["loaded"] += 1
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()
+                sf = SourceFile(source_key=key, page_url=f.page_url, file_url=f.url, file_name=name,
+                                sha256=fetch.sha256(blob), size_bytes=len(blob), status="parse_failed",
+                                error=traceback.format_exc()[-2000:], licence=spec.licence)
+                db.add(sf)
+                summary["failed"] += 1
+            db.commit()
+    return summary
+
+
+def refresh(keys: list[str] | None = None, trigger: str = "manual") -> int:
+    """Run the pipeline for the given sources (default all). Returns the RefreshRun id."""
+    keys = keys or list(SOURCES)
+    with _lock:
+        db = SessionLocal()
+        try:
+            run = RefreshRun(trigger=trigger, status="running")
+            db.add(run)
+            db.commit()
+            seed_orgs(db)
+            results, failed, lines = [], 0, []
+            for k in keys:
+                try:
+                    s = run_source(db, k)
+                except Exception:  # noqa: BLE001 - one source failing must not stop the others
+                    db.rollback()
+                    s = {"source": k, "error": traceback.format_exc()[-1500:], "failed": 1}
+                results.append(s)
+                failed += 1 if s.get("failed") else 0
+                lines.append(f"{k}: {({a: b for a, b in s.items() if a != 'notes'})}")
+            run.finished_at = _now()
+            run.status = "ok" if not failed else ("failed" if failed == len(keys) else "partial")
+            run.summary = {"sources": results}
+            run.log = "\n".join(lines)
+            db.commit()
+            log.info("refresh %s: %s", run.id, run.status)
+            return run.id
+        finally:
+            db.close()
+
+
+def refresh_in_background(keys: list[str] | None, trigger: str) -> None:
+    threading.Thread(target=refresh, args=(keys, trigger), daemon=True).start()

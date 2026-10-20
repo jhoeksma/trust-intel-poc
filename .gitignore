@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+*.db
+.env
+data/private/
+data/raw/
+*.installed_systems.csv
+.pytest_cache/

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trust Intelligence PoC</title>
+<style>
+:root{--bg:#f7f8fa;--card:#fff;--ink:#1b2430;--mute:#667085;--line:#e3e7ee;--accent:#0b5cad;
+--s1:#2e8b57;--s2:#8fb339;--s3:#e0a800;--s4:#e2711d;--s5:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#10151c;--card:#182029;--ink:#e8edf3;--mute:#9aa6b5;--line:#2a3541;--accent:#5aa2e8}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+h1{font-size:17px;margin:0}nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button{border:0;background:none;color:var(--mute);padding:6px 10px;border-radius:6px;cursor:pointer;font:inherit}
+nav button.on{background:var(--accent);color:#fff}
+main{padding:16px;max-width:1200px;margin:auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mute);font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.wrap{overflow-x:auto}input,select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
+button.act{font:inherit;padding:6px 12px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+.pill{display:inline-block;min-width:26px;text-align:center;border-radius:12px;padding:1px 8px;color:#fff;font-weight:600}
+.s1{background:var(--s1)}.s2{background:var(--s2)}.s3{background:var(--s3)}.s4{background:var(--s4)}.s5{background:var(--s5)}.s0{background:var(--mute)}
+.mute{color:var(--mute)}.tag{font-size:12px;border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-right:4px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+a{color:var(--accent);cursor:pointer}pre{white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto;background:var(--bg);padding:8px;border-radius:6px}
+.up{color:var(--s1)}.dn{color:var(--s5)}
+</style>
+</head>
+<body>
+<header><h1>Trust Intelligence PoC</h1>
+<nav id="nav"></nav><span class="mute" style="margin-left:auto">Internal spike. Public NHS data joined by ODS code.</span></header>
+<main id="main"></main>
+<script>
+var state = {tab: 'dashboard', trusts: [], sort: 'strain', dir: -1, filter: '', cmp: []};
+var TABS = [['dashboard', 'Dashboard'], ['trust', 'Trust'], ['compare', 'Compare'], ['sources', 'Sources']];
+
+function api(path, opts) {
+  return fetch(path, opts).then(function (r) {
+    if (!r.ok) { return r.text().then(function (t) { throw new Error(r.status + ' ' + t); }); }
+    return r.json();
+  });
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]; }); }
+function num(v, d) { return v == null ? '–' : Number(v).toLocaleString('en-GB', {maximumFractionDigits: d == null ? 1 : d}); }
+function pill(s) { return '<span class="pill s' + (s || 0) + '" title="Strain 1 (low) to 5 (high)">' + (s || '–') + '</span>'; }
+
+function nav() {
+  document.getElementById('nav').innerHTML = TABS.map(function (t) {
+    return '<button class="' + (state.tab === t[0] ? 'on' : '') + '" onclick="go(\'' + t[0] + '\')">' + t[1] + '</button>';
+  }).join('');
+}
+function go(tab, arg) {
+  state.tab = tab; nav();
+  if (tab === 'dashboard') { return dashboard(); }
+  if (tab === 'trust') { return trustView(arg || state.current); }
+  if (tab === 'compare') { return compareView(); }
+  if (tab === 'sources') { return sourcesView(); }
+}
+function main(html) { document.getElementById('main').innerHTML = html; }
+
+function dashboard() {
+  api('/api/trusts').then(function (rows) {
+    state.trusts = rows; drawDashboard();
+  }).catch(fail);
+}
+function drawDashboard() {
+  var f = state.filter.toLowerCase();
+  var rows = state.trusts.filter(function (t) {
+    return !f || (t.name || '').toLowerCase().indexOf(f) >= 0 || t.ods_code.toLowerCase().indexOf(f) >= 0 ||
+      t.suppliers.join(' ').toLowerCase().indexOf(f) >= 0;
+  });
+  rows.sort(function (a, b) {
+    var x = a[state.sort], y = b[state.sort];
+    if (x == null && y == null) { return 0; } if (x == null) { return 1; } if (y == null) { return -1; }
+    return (x > y ? 1 : x < y ? -1 : 0) * state.dir;
+  });
+  var scored = state.trusts.filter(function (t) { return t.strain; });
+  var dist = [1, 2, 3, 4, 5].map(function (s) { return scored.filter(function (t) { return t.strain === s; }).length; });
+  var h = '<div class="card"><div class="grid">' + dist.map(function (n, i) {
+    return '<div>' + pill(i + 1) + ' <b>' + n + '</b> <span class="mute">trusts at strain ' + (i + 1) + '</span></div>';
+  }).join('') + '</div><p class="mute" style="margin:8px 0 0">Strain 1–5 is a v0 indicator derived from the NHS Oversight Framework segment. ' +
+    state.trusts.length + ' organisations loaded.</p></div>';
+  h += '<div class="card"><input id="flt" placeholder="Filter by name, code or supplier" value="' + esc(state.filter) + '" oninput="state.filter=this.value;drawDashboard();document.getElementById(\'flt\').focus()">';
+  h += '<div class="wrap"><table><tr>' +
+    [['name', 'Trust'], ['ods_code', 'Code'], ['strain', 'Strain'], ['rtt_pct_18w', 'RTT within 18w %'], ['rtt_waiting', 'RTT waiting list'], ['suppliers', 'Suppliers']]
+      .map(function (c) { return '<th class="' + (c[0].indexOf('rtt') === 0 ? 'n' : '') + '" onclick="sortBy(\'' + c[0] + '\')">' + c[1] + '</th>'; }).join('') + '<th></th></tr>';
+  rows.slice(0, 400).forEach(function (t) {
+    h += '<tr><td><a onclick="go(\'trust\',\'' + t.ods_code + '\')">' + esc(t.name || t.ods_code) + '</a></td><td>' + esc(t.ods_code) + '</td><td>' + pill(t.strain) + '</td>' +
+      '<td class="n">' + num(t.rtt_pct_18w) + '</td><td class="n">' + num(t.rtt_waiting, 0) + '</td><td>' +
+      t.suppliers.map(function (s) { return '<span class="tag">' + esc(s) + '</span>'; }).join('') + '</td>' +
+      '<td><input type="checkbox" ' + (state.cmp.indexOf(t.ods_code) >= 0 ? 'checked' : '') + ' onchange="toggleCmp(\'' + t.ods_code + '\',this.checked)" title="Add to compare"></td></tr>';
+  });
+  h += '</table></div></div>';
+  if (!state.trusts.length) { h = '<div class="card">No data yet. Open <a onclick="go(\'sources\')">Sources</a> and run a refresh.</div>'; }
+  main(h);
+}
+function sortBy(k) { state.dir = state.sort === k ? -state.dir : 1; state.sort = k; drawDashboard(); }
+function toggleCmp(c, on) {
+  state.cmp = state.cmp.filter(function (x) { return x !== c; });
+  if (on) { state.cmp.push(c); }
+  state.cmp = state.cmp.slice(-5);
+}
+
+function trustView(code) {
+  if (!code) { return main('<div class="card">Pick a trust from the dashboard.</div>'); }
+  state.current = code;
+  api('/api/trusts/' + encodeURIComponent(code)).then(function (t) {
+    var h = '<div class="card"><h2 style="margin:0">' + esc(t.name || t.ods_code) + ' <span class="mute">' + esc(t.ods_code) + '</span></h2>' +
+      '<p>Strain ' + pill(t.strain.score) + ' ' + esc(t.strain.label) + ' <span class="mute">· ' + esc(t.strain.basis) + '</span></p></div>';
+    if (t.systems.length) {
+      h += '<div class="card"><b>Installed systems (FHI)</b><table>' + t.systems.map(function (s) {
+        return '<tr><td>' + esc(s.category) + '</td><td>' + esc(s.supplier) + '</td><td>' + esc(s.product) + '</td><td>' + esc(s.contract_end) + '</td></tr>';
+      }).join('') + '</table></div>';
+    }
+    var by = {};
+    t.metrics.forEach(function (m) { (by[m.source] = by[m.source] || []).push(m); });
+    Object.keys(by).forEach(function (src) {
+      h += '<div class="card"><b>' + esc(src.toUpperCase()) + '</b> <span class="mute">' + by[src].length + ' metrics</span><div class="wrap"><table><tr><th>Metric</th><th>Period</th><th class="n">Value</th><th class="n">Previous</th></tr>';
+      by[src].slice(0, 300).forEach(function (m) {
+        var chg = (m.previous_value != null && m.value != null) ? m.value - m.previous_value : null;
+        h += '<tr><td>' + esc(m.label || m.metric_code) + '</td><td>' + esc(m.period) + '</td><td class="n">' + num(m.value, 2) + '</td><td class="n">' +
+          (m.previous_value == null ? '–' : num(m.previous_value, 2) + ' <span class="mute">(' + esc(m.previous_period) + ')</span>') + '</td></tr>';
+      });
+      h += '</table></div></div>';
+    });
+    main(h);
+  }).catch(fail);
+}
+
+function compareView() {
+  var codes = state.cmp.join(',');
+  var h = '<div class="card">Tick up to five trusts on the dashboard, then return here. Selected: <b>' + esc(codes || 'none') + '</b></div>';
+  if (!codes) { return main(h); }
+  api('/api/compare?codes=' + encodeURIComponent(codes)).then(function (c) {
+    h += '<div class="card wrap"><table><tr><th>Metric</th>' + c.trusts.map(function (t) { return '<th class="n">' + esc(t.name || t.ods_code) + '<br>' + pill(t.strain) + '</th>'; }).join('') + '</tr>';
+    c.rows.slice(0, 400).forEach(function (r) {
+      h += '<tr><td>' + esc(r.label || r.metric_code) + ' <span class="tag">' + esc(r.source) + '</span></td>' +
+        c.trusts.map(function (t) { var v = r.values[t.ods_code]; return '<td class="n">' + (v ? num(v.value, 2) : '–') + '</td>'; }).join('') + '</tr>';
+    });
+    main(h + '</table></div>');
+  }).catch(fail);
+}
+
+function sourcesView() {
+  Promise.all([api('/api/sources'), api('/api/runs')]).then(function (res) {
+    var s = res[0], runs = res[1];
+    var h = '<div class="card"><button class="act" onclick="runRefresh()">Refresh all sources</button> <span id="rmsg" class="mute"></span>' +
+      '<p class="mute">Each refresh discovers the latest files from NHS England and NHS Digital, downloads them and loads them. First runs are slow. Reload this tab to see progress.</p></div>';
+    h += '<div class="card"><b>Coverage</b><table><tr><th>Source</th><th class="n">Metric rows</th><th class="n">Organisations</th><th class="n">Latest period key</th></tr>' +
+      s.coverage.map(function (c) { return '<tr><td>' + esc(c.source) + '</td><td class="n">' + num(c.metrics, 0) + '</td><td class="n">' + c.orgs + '</td><td class="n">' + c.latest_period_sort + '</td></tr>'; }).join('') + '</table></div>';
+    h += '<div class="card"><b>Files and field inventory</b><div class="wrap"><table><tr><th>Source</th><th>File</th><th>Status</th><th>Mapper</th><th class="n">Rows</th><th class="n">Metrics</th><th>Retrieved</th></tr>';
+    s.files.forEach(function (f) {
+      h += '<tr><td>' + esc(f.source) + '</td><td><a onclick="toggle(' + f.id + ')">' + esc(f.file_name || f.file_url || '(none)') + '</a>' + (f.error ? '<br><span class="dn">' + esc(f.error.slice(0, 200)) + '</span>' : '') +
+        '<pre id="p' + f.id + '" style="display:none">' + esc(JSON.stringify(f.profile, null, 1)) + '</pre></td><td>' + esc(f.status) + '</td><td>' + esc(f.mapper_status) + '</td><td class="n">' + num(f.rows, 0) + '</td><td class="n">' + num(f.metric_rows, 0) + '</td><td>' + esc((f.retrieved_at || '').slice(0, 16)) + '</td></tr>';
+    });
+    h += '</table></div></div><div class="card"><b>Refresh runs</b>' + runs.map(function (r) {
+      return '<p><span class="tag">' + esc(r.status) + '</span> ' + esc(r.started_at.slice(0, 16)) + ' (' + esc(r.trigger) + ')<pre>' + esc(r.log) + '</pre></p>';
+    }).join('') + '</div>';
+    h += '<div class="card"><b>Installed-systems overlay</b><p class="mute">CSV with columns ods_code, category, supplier, product, contract_end, note.</p>' +
+      '<input type="file" id="sysfile" accept=".csv"> <button class="act" onclick="uploadSystems()">Import</button> <span id="smsg" class="mute"></span></div>';
+    main(h);
+  }).catch(fail);
+}
+function toggle(id) { var e = document.getElementById('p' + id); e.style.display = e.style.display === 'none' ? 'block' : 'none'; }
+function runRefresh() {
+  api('/api/refresh', {method: 'POST'}).then(function () { document.getElementById('rmsg').textContent = 'Started. Reload this tab in a minute.'; }).catch(fail);
+}
+function uploadSystems() {
+  var f = document.getElementById('sysfile').files[0];
+  if (!f) { return; }
+  var fd = new FormData(); fd.append('file', f);
+  api('/api/systems/import', {method: 'POST', body: fd}).then(function (r) {
+    document.getElementById('smsg').textContent = 'Imported ' + r.imported + ' rows. Join rate to public data: ' + Math.round(r.join_rate * 100) + '%. Unmatched: ' + r.codes_not_in_public_data.join(', ');
+  }).catch(fail);
+}
+function fail(e) { main('<div class="card dn">' + esc(e.message) + '</div>'); }
+nav(); go('dashboard');
+</script>
+</body>
+</html>
