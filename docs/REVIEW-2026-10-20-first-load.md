@@ -30,3 +30,23 @@ Provenance, failure recording, seed fallback, schema detection on 19 files witho
 2. Aggregation in the wide loader and URL-decoded names.
 3. ERIC site file; HES glossary.
 4. Stale-code map (current_code) starting with RBZ.
+
+---
+
+# Second load (11:41 UTC, after fixes 0.2.0 to 0.3.1)
+
+| Source | Rows | Metric codes | Orgs | Period | Change |
+|---|---|---|---|---|---|
+| workforce | 11,285 (was 635,699) | 62 | 237 | 2026-07 | One value per org, metric and period; staff-group breakdowns |
+| eric (trust) | 8,938 | 44 | 207 | 2024/25 (was unknown) | Period fixed |
+| eric_site (new) | 37,257 | 220 | 205 | 2025/26 | 2,923 sites rolled up |
+| hes | 58,623 | 189 | 583 | 2024/25 | Unchanged; suppressed values now counted |
+| nof, rtt | 0 | 0 | 0 | | Still blocked: england.nhs.uk returns a 1,999-byte page with no links to Railway |
+
+Integrity: 0 duplicate (org, metric, period) keys; 0 rows with unknown period.
+
+Join to FHI reference (274): 237 matched (86.5%) with the successor map. Per source: workforce 235, eric 200, eric_site 200, hes 151. Trusts present in all loaded sources: 151 (HES is the limit; it covers acute providers). The unmatched remainder is mostly non-English or non-trust bodies. Codes in public data but missing from the FHI list include RNK (Tavistock and Portman), RVJ (North Bristol), RY2 (Bridgewater Community), RY3 (Norfolk Community and Health Care): the FHI list should be extended.
+
+ERIC site checks (2025/26): backlog £17.35bn across 203 trusts, of which £9.74bn rated high or significant risk; 27.9m m² gross internal floor area; £1.19bn energy cost; largest backlog Imperial College Healthcare (£992m). Verify these against the published ERIC national summary before any external use.
+
+Open: NOF and RTT need hand-supplied URLs (`SEED_URLS_NOF`, `SEED_URLS_RTT`); the strain score stays blank until NOF loads. Cron schedule is daily 05:00 UTC; the first cron run has not been observed yet (the 11:34 test schedule did not fire, so scheduled execution is still unproven).
