@@ -196,7 +196,7 @@ function trustView(code) {
       '<input id="pq" placeholder="Search measures, e.g. waiting, backlog, CQC, workforce" oninput="drawPicker()" style="width:100%;max-width:520px"> ' +
       '<button class="act" onclick="resetFields()">Reset to core</button> <button class="act" style="background:none;color:var(--accent)" onclick="clearFields()">Clear</button>' +
       '<div id="picker" class="picker"></div></div>';
-    h += '<div id="bench"></div>';
+    h += '<div id="merged"></div><div id="bench"></div>';
     if (t.systems.length) {
       h += '<div class="card"><b>Installed systems (FHI)</b><table>' + t.systems.map(function (s) {
         return '<tr><td>' + esc(s.category) + '</td><td>' + esc(s.supplier) + '</td><td>' + esc(s.product) + '</td><td>' + esc(s.contract_end) + '</td></tr>';
@@ -267,6 +267,8 @@ function refreshBench() {
   var asked = state.current;
   api('/api/benchmark/trust/' + enc(asked) + '?scope=' + state.scope + '&codes=' + enc(state.fields.join(','))).then(function (b) {
     if (asked !== state.current) { return; }
+    var mb = document.getElementById('merged');
+    if (mb) { mb.innerHTML = b.merged_into ? '<div class="callout">This code has merged into <a onclick="go(\'trust\',\'' + esc(b.merged_into) + '\')"><b>' + esc(b.merged_into_name || b.merged_into) + ' (' + esc(b.merged_into) + ')</b></a>. Newer data sits under the successor.</div>' : ''; }
     var g = document.getElementById('grp');
     if (g) { g.textContent = b.peer_group_label; }
     var counts = {1: 0, 2: 0, 3: 0, 4: 0};

@@ -166,3 +166,16 @@ def test_rtt_incomplete_excludes_unknown_clock_and_other_specialties():
     assert by["rtt:unknown_clock_start"] == 500 and by["rtt:completed_admitted"] == 7
     assert 0 <= by["rtt:incomplete_median_wait_weeks"] <= 1  # 50 of 100 sit in the first week bucket
     assert by["rtt:incomplete_p92_wait_weeks"] >= 18
+
+
+def test_nof_emits_peer_group_once_per_trust():
+    from app.sources.nof import load_nof, peer_group_code
+    assert peer_group_code("Acute trust") == 1 and peer_group_code("Mental health and community trust") == 2
+    assert peer_group_code("Ambulance trust") == 3 and peer_group_code("Independent") is None
+    hdr = "Trust_code,Trust_name,Trust_type,Quarter,Metric_ID,Metric_description,Value,Units\n"
+    body = ("RXX,Alpha,Mental health and community trust,Q1 2026/27,OF5200,Segment,2,segment\n"
+            "RXX,Alpha,Mental health and community trust,Q1 2026/27,OF5202,Score,2.1,score\n")
+    r = load_nof("nof", "NOF - Q1 2026_27 - Trust data - Mental health and community.csv", (hdr + body).encode())
+    g = [m for m in r.metrics if m["metric_code"] == "nof:peer_group"]
+    assert len(g) == 1 and g[0]["value"] == 3.0 or g[0]["value"] == 2.0
+    assert g[0]["value"] == 2.0 and g[0]["unit"] == "group"

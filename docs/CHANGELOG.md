@@ -6,7 +6,10 @@
 - Explorer tab: pick one measure, see every organisation as a dot (continuous measures) or as count bars (segments, ratings, flags), highlight any trust, filter to a peer group, and read the full ranking underneath.
 - Trust dashboard (replaces the Trust tab): core fields by default, any other measure added or removed from a searchable picker (choice remembered in the browser), each shown with value, rank, share of peers beaten, quartile and a range bar. The old full value table is kept in a collapsible section.
 - Reference: successors RNK to G6V2S, RVJ to RA7, RY2 to RWW added to `code_successors.csv`; RY3 added to `trusts_ods.csv` (no FHI id yet). Source: Jon, 20 Oct 2026, quoting NHS Digital's ODS mergers page. To verify against ODS.
-- Tests: 54 passing.
+- NOF loader emits `nof:peer_group` (1 acute, 2 mental health and community, 3 ambulance) from each file's Trust_type; benchmarking uses it for peer groups. LOADER_VERSION 7 forces the NOF files to reload. Found on the live data: the first inference misfiled RY3 as acute.
+- A merged code's dashboard shows a banner pointing to its successor.
+- `scripts/bench_check.py`: read-only view of what the benchmarking layer sees in the live database.
+- Tests: 57 passing.
 
 ## 0.6.0 - 2026-10-20
 - New source `cqc`: CQC "Latest ratings" workbook (monthly .ods, OGL v3; CQC acknowledged as source). Provider-level overall rating, the five key questions, Use of Resources and combined quality rating, plus counts of core services rated below Good. Discovered automatically from CQC's "Using CQC data" page (reachable from Railway); seed URL is the October 2026 file.

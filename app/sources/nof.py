@@ -13,6 +13,9 @@ Two published shapes, told apart by their header:
   duplicate OF5200/OF5202/OF5204 (checked: 202 of 202 identical on Q1 2026/27), so
   only the fields the trust data lacks are loaded: rank and the two likely ranges.
 
+Every trust-data row carries Trust_type, so one `nof:peer_group` metric (1 acute, 2 mental health and
+community, 3 ambulance; unit "group") is emitted per trust. League tables do not repeat it.
+
 Reporting_date in the trust data varies per metric ("Jun-26", "2025", "12 months to
 June 2026"), so every row takes the file's Quarter as its period; the metric's own
 reporting window is kept in the label.
@@ -27,6 +30,18 @@ _SHORT_QUARTER = re.compile(r"(?i)\bQ([1-4])\s*(\d{2})\s*/\s*(\d{2})\b")  # "Q1 
 UNITS = {"%": "pct", "mins": "mins", "days": "days", "score": "score", "segment": "segment", "flag": "flag",
          "count": "count", "index": "index", "out of 10": "score10", "per 1,000 deliveries": "per1000"}
 _RANGE = re.compile(r"^\s*([\d.]+)\s+to\s+([\d.]+)\s*$")
+
+
+def peer_group_code(trust_type: str | None) -> int | None:
+    """NOF's own trust type: 1 acute, 2 mental health and community, 3 ambulance. The peer group used for benchmarking."""
+    t = (trust_type or "").lower()
+    if "ambulance" in t:
+        return 3
+    if "mental health" in t or "community" in t:
+        return 2
+    if "acute" in t:
+        return 1
+    return None
 
 
 def _quarter(text: str, default_period):
@@ -72,6 +87,7 @@ def load_nof(source_key: str, file_name: str, data: bytes, default_period: str |
         return r[i].strip() if i is not None and i < len(r) else ""
 
     total = 0
+    grouped: set = set()
     periods: set = set()
     seen: set = set()
     dup = 0
@@ -88,6 +104,11 @@ def load_nof(source_key: str, file_name: str, data: bytes, default_period: str |
         types[org_type] = types.get(org_type, 0) + 1
 
         if shape == "trust_data":
+            grp = peer_group_code(org_type)
+            if grp and (org, period.label) not in grouped:
+                grouped.add((org, period.label))
+                result.metrics.append(_metric(f"{source_key}:peer_group", "NOF trust type (1 Acute, 2 Mental health and community, 3 Ambulance)",
+                                              org, period, float(grp), source_key, "group"))
             mid = get(r, "metric_id")
             val = _num(get(r, "value"))
             if not mid or val is None:

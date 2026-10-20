@@ -166,3 +166,23 @@ def test_default_codes_are_core_and_bad_input(bench):
     assert bench.get("/api/benchmark/trust/R01?scope=x").status_code == 422
     assert bench.get("/api/benchmark/metric?code=nope").status_code == 404
     assert bench.get("/api/benchmark/metric?code=nof:of5200&group=bogus").status_code == 422
+
+
+def test_publisher_trust_type_overrides_inferred_group(bench, db):
+    from app.benchmark import _cache
+    sf = db.query(SourceFile).first()
+    db.add(Metric(ods_code="R03", source_key="nof", metric_code="nof:peer_group", metric_label="type", period="Q1 2026/27",
+                  period_sort=202604, period_type="quarter", value=2.0, unit="group", source_file_id=sf.id))
+    db.commit()
+    _cache.clear()
+    assert bench.get("/api/benchmark/trust/R03").json()["peer_group"] == "mhc"
+    assert bench.get("/api/benchmark/trust/R04").json()["peer_group"] == "acute"
+    assert "nof:peer_group" not in {r["metric_code"] for r in bench.get("/api/benchmark/metrics").json()}
+
+
+def test_merged_code_points_to_successor(bench, db):
+    db.add_all([Org(ods_code="RNK", name="Tavistock"), Org(ods_code="G6V2S", name="North London NHS Foundation Trust")])
+    db.commit()
+    b = bench.get("/api/benchmark/trust/RNK").json()
+    assert b["merged_into"] == "G6V2S" and b["merged_into_name"].startswith("North London")
+    assert bench.get("/api/benchmark/trust/R01").json()["merged_into"] is None

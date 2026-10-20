@@ -6,8 +6,8 @@ Rules, kept deliberately simple so a number on screen can always be explained:
   between organisations for slow-moving sources (CQC ratings carry their publication month); the
   period shown with each value is its own.
 * Peer groups come from the NHS Oversight Framework: ambulance, mental health and community, acute.
-  The NOF trust type is not kept on the organisation row, so it is inferred from which NOF measures
-  an organisation reports (the same inference scripts/review.py uses). Organisations with no NOF
+  The NOF trust type comes from the Trust_type column of the NOF files (metric nof:peer_group); where that is
+  missing it is inferred from which NOF measures an organisation reports (as scripts/review.py does). Organisations with no NOF
   data fall into "other" and are only ever compared nationally.
 * Rank 1 is best when we know which direction is good (POLARITY below), otherwise rank 1 is the
   highest value and nothing is coloured good or bad. Ties share the better rank.
@@ -46,6 +46,8 @@ CORE_FIELDS = ["nof:of5200", "nof:of5202", "nof:league_rank", "cqc:overall", "rt
                "rtt:pct_over_52_weeks", "rtt:incomplete_median_wait_weeks", "rtt:incomplete_pathways_total",
                "cqc:core_services_below_good_pct", "backlog_per_sqm"]
 
+PEER_GROUP_CODE = "nof:peer_group"  # written by the NOF loader from each file's Trust_type
+_GROUP_BY_VALUE = {1: "acute", 2: "mhc", 3: "ambulance"}
 MIN_ORGS = 10
 _cache: dict = {}
 
@@ -65,7 +67,7 @@ def polarity(code: str) -> str | None:
 
 def _companion(code: str) -> bool:
     """Rank and likely-range columns describe another metric; they are not comparable measures themselves."""
-    return code.endswith(":rank") or code.endswith("_low") or code.endswith("_high")
+    return code.endswith(":rank") or code.endswith("_low") or code.endswith("_high") or code == PEER_GROUP_CODE
 
 
 def catalogue(db: Session) -> list[dict]:
@@ -125,8 +127,11 @@ def peer_groups(db: Session) -> dict[str, str]:
         return {o for (o,) in db.execute(select(Metric.ods_code).where(Metric.metric_code.in_(codes)).distinct())}
     amb, mhc, nof = has("nof:of0004"), has("nof:of0029", "nof:of0043"), has(SEGMENT_CODE)
     groups = {}
-    for o in nof:
+    for o in nof:  # fallback inference for NOF organisations whose files predate the peer_group metric
         groups[o] = "ambulance" if o in amb else "mhc" if o in mhc else "acute"
+    for o, v in latest_values(db, PEER_GROUP_CODE).items():  # the publisher's own trust type wins
+        if int(v["value"]) in _GROUP_BY_VALUE:
+            groups[o] = _GROUP_BY_VALUE[int(v["value"])]
     _cache["groups"] = (stamp, groups)
     return groups
 
@@ -215,5 +220,8 @@ def trust_benchmark(db: Session, ods: str, codes: list[str], scope: str = "peers
                 med = row["stats"]["median"]
                 row["vs_median"] = round(vals[ods]["value"] - med, 6)
         rows.append(row)
-    return {"ods_code": ods, "peer_group": mine_group, "peer_group_label": GROUP_LABELS[mine_group],
+    from app.reference import load_successors
+    merged = load_successors().get(ods)
+    merged_name = db.scalar(select(Org.name).where(Org.ods_code == merged)) if merged else None
+    return {"ods_code": ods, "merged_into": merged, "merged_into_name": merged_name, "peer_group": mine_group, "peer_group_label": GROUP_LABELS[mine_group],
             "scope": scope, "metrics": rows}
