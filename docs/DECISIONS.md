@@ -17,3 +17,5 @@
 | D-013 | 2026-10-20 | File URLs can be supplied by hand through `SEED_URLS_<SOURCE>` | NHS index pages return 403 or empty pages to Railway; stable manual seeds are the dependable route |
 | D-014 | 2026-10-20 | Reload files when `LOADER_VERSION` changes, even if the file hash is unchanged | Loader fixes must reach data already loaded |
 | D-015 | 2026-10-20 | Hand-maintained successor-code map; scorecards merge predecessor history | Mergers change ODS codes (RBZ to RH8) |
+| D-016 | 2026-10-20 | Commit Jon's ERIC site data (converted from Numbers) to the repo as a seed file | Public OGL data; NHS sites block our fetcher; lets us load immediately. Replace with the official CSV when we have the link |
+| D-017 | 2026-10-20 | Sum site rows to trust level; percentages weighted by floor area; Not Applicable treated as missing | Sites are additive; zero would misstate |

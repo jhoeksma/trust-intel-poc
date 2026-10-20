@@ -8,6 +8,7 @@ All public, Open Government Licence v3.0 unless a publication page says otherwis
 | rtt | Referral to treatment waiting times, full CSV | NHS England | Monthly | rtt | Incomplete pathways (Part_2), all specialties (C_999), summed across commissioners. |
 | workforce | NHS Workforce Statistics, trusts and core organisations CSVs | NHS England | Monthly | generic | Zip of many CSVs; each with an organisation code is loaded. |
 | eric | Estates Returns Information Collection, trust data | NHS England | Annual | generic (wide) | 2024/25 published October 2025. Some fields flagged unreliable by publisher. |
+| eric_site | ERIC site-level return 2025/26, rolled up to trust | NHS England | Annual | eric_site | Committed file (file:// seed); override with SEED_URLS_ERIC_SITE. Holds the backlog, energy and estates cost fields the trust-level file lacks. |
 | hes | Hospital Episode Statistics, admitted patient care, provider level | NHS England | Annual | generic | Counts episodes, not patients. Publisher notes a data error at RMC (Bolton) in 2024-25. |
 
 Plus the FHI trust ODS code list (Jon, project files, 20 October 2026): the reference spine for organisation names and codes.

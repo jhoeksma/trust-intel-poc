@@ -12,6 +12,9 @@ Variables: `DATABASE_URL`, `APP_ENV=production`, `BASIC_AUTH_USER`, `BASIC_AUTH_
 ## When NHS pages block discovery
 NHS Digital index pages return 403 and some NHS England pages return no links when fetched from Railway. Open the page in a browser, right-click the file link, copy the address, and set it on the **refresh** and **web** services as `SEED_URLS_<SOURCE>` (sources: NOF, RTT, WORKFORCE, ERIC, HES; comma-separate several URLs). The override wins over scraping. File URLs include random suffixes, so refresh these when a new release is published.
 
+## Committed data files
+Seeds can be `file://` paths relative to the repo root (e.g. `file://data/manual/<name>.csv.gz`); `.gz` is decompressed. Only public data may be committed. Never commit installed-systems data.
+
 ## Deploy
 Push to `main`; CI must pass. Trigger a deploy with a new `CACHE_BUST` variable value (redeploy reuses the old snapshot). After a migration, confirm `alembic_version` and the tables; do not rely on deployment status.
 

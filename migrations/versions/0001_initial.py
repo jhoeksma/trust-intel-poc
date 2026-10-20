@@ -41,7 +41,7 @@ def upgrade() -> None:
     )
     op.create_table(
         "metrics",
-        sa.Column("id", sa.BigInteger, primary_key=True, autoincrement=True),
+        sa.Column("id", sa.BigInteger().with_variant(sa.Integer, "sqlite"), primary_key=True, autoincrement=True),
         sa.Column("ods_code", sa.String(10), nullable=False),
         sa.Column("source_key", sa.String(40), nullable=False),
         sa.Column("metric_code", sa.String(200), nullable=False),

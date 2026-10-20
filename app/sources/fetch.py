@@ -2,14 +2,33 @@
 import hashlib
 import io
 import time
+import gzip
 import zipfile
+from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import requests
 
 from app.config import settings
 
 
+ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def read_local(url: str) -> bytes:
+    """file://data/manual/name.csv.gz -> bytes (relative to the repo root; .gz is decompressed)."""
+    p = urlparse(url)
+    rel = unquote((p.netloc + p.path))
+    path = (ROOT / rel).resolve()
+    if ROOT not in path.parents:
+        raise ValueError("local files must live inside the repository")
+    data = path.read_bytes()
+    return gzip.decompress(data) if path.suffix == ".gz" else data
+
+
 def download(url: str, retries: int = 3) -> bytes:
+    if url.startswith("file://"):
+        return read_local(url)
     cap = settings.max_download_mb * 1024 * 1024
     last = None
     for attempt in range(1, retries + 1):

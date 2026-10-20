@@ -9,6 +9,9 @@
 ## Metric codes
 `<source>:<column>` for single tables; `<source>:<table>:<column>` for multi-table releases (workforce `core_8`). Aggregated totals carry the label "(total)"; breakdowns add `:<value>` to the code, e.g. `workforce:core_8:fte:nurses_health_visitors`. Wide tables are summed across dimension rows; averages and rates must not be summed, so check the profile before relying on a column.
 
+## ERIC site metrics (`eric_site:*`)
+Raw questions keep ERIC codes in lower case (`eric_site:s03_10` = cost to eradicate moderate risk backlog, £), summed over a trust's sites. Percentages are floor-area weighted. Derived: `backlog_total`, `backlog_high_significant`, `backlog_high_significant_share`, `backlog_per_sqm`, `energy_cost_total`, `energy_cost_per_sqm`, `energy_kwh_total`, `energy_kwh_per_sqm`, `estates_cost_total` (S25 lines 05 to 19 excluding S25_11 and S25_22; check against the ERIC guidance before publishing), `unsuitable_share`, `empty_share`, `sites_total`, `sites:<type>`. Text and select columns are skipped and listed in the file profile.
+
 ## Derived metrics
 | Code | Definition |
 |---|---|

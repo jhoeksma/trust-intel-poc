@@ -101,15 +101,29 @@ def sources(db: Session = Depends(get_db)):
 
 
 def _reference_coverage(db: Session) -> dict:
-    """Join check: FHI reference list against organisations present in public data."""
+    """Join check: FHI reference list against organisations present in public data.
+
+    A reference code counts as matched if it, or its successor (data/reference/code_successors.csv),
+    has data. England-only trusts are reported separately from ICBs and non-English bodies.
+    """
+    from app.reference import load_successors
     ref = {r["ods_code"]: r for r in load_reference()}
+    succ = load_successors()
     with_data = {c for (c,) in db.execute(select(Metric.ods_code).distinct())}
-    matched = sorted(set(ref) & with_data)
+    matched = {c for c in ref if c in with_data or succ.get(c) in with_data}
+    covered_public = set(ref) | set(succ.values())
+    trusts = {c for c, r in ref.items() if r["kind"] == "Trust"}
+    non_english = {c for c in trusts if c[:1] in ("S", "Z") or c.startswith("7A") or c in ("W01", "XDH", "T1520", "K0N6A", "RQF", "RT4")
+                   or c.startswith("0")}
+    english = trusts - non_english
     return {
         "reference_orgs": len(ref), "with_public_data": len(matched),
         "join_rate": round(len(matched) / len(ref), 3) if ref else None,
-        "reference_without_data": sorted(set(ref) - with_data)[:100],
-        "public_data_not_in_reference": sorted(with_data - set(ref))[:100],
+        "english_trusts_in_reference": len(english), "english_trusts_with_data": len(english & matched),
+        "english_trust_join_rate": round(len(english & matched) / len(english), 3) if english else None,
+        "english_trusts_without_data": sorted(english - matched),
+        "reference_without_data": sorted(set(ref) - matched)[:100],
+        "public_data_not_in_reference": sorted(with_data - covered_public)[:100],
     }
 
 

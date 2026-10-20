@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 - 2026-10-20
+- New source `eric_site`: ERIC 2025/26 site-level return (2,923 sites, 195 numeric measures) rolled up to 205 trusts. Supplied by Jon as a Numbers file, converted to CSV, committed as `data/manual/ERIC - 2025_26 - Site data.csv.gz` (public data, OGL). Dedicated loader `app/sources/eric_site.py`.
+- Derived trust measures: backlog (total, high and significant, share, per m²), energy cost and consumption (total, per m²), estates cost lines, unsuitable and empty floor area shares, site counts by type.
+- `file://` seed URLs for committed data files (repo-relative, .gz decompressed).
+- Coverage report now follows the successor map and reports English trusts separately.
+- Migration 0001: metrics.id portable to SQLite for local runs (no effect on Postgres).
+- 33 tests.
+
 ## 0.2.0 - 2026-10-20
 Fixes from the first live load review (docs/REVIEW-2026-10-20-first-load.md):
 - Wide tables that repeat an organisation across dimension rows (workforce) are now summed to one value per organisation, period and metric, plus a breakdown by the main categorical column (e.g. staff group). Metric codes for multi-table releases carry the table (`workforce:core_8:fte`).

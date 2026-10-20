@@ -433,3 +433,11 @@ def load_rtt(source_key: str, file_name: str, data: bytes, default_period: str |
 
 
 LOADERS = {"generic": load_generic, "rtt": load_rtt}
+
+
+def get_loader(name: str):
+    """Loader by name. eric_site is imported lazily: it imports helpers from this module."""
+    if name == "eric_site":
+        from app.sources.eric_site import load_eric_site
+        return load_eric_site
+    return LOADERS.get(name, load_generic)

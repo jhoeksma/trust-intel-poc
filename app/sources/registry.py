@@ -82,6 +82,18 @@ SOURCES: dict[str, SourceSpec] = {
             note="Some fields are flagged unreliable by the publisher; see its data quality worksheets.",
         ),
         SourceSpec(
+            key="eric_site",
+            name="ERIC site-level return, rolled up to trust (2025/26)",
+            owner="NHS England",
+            cadence="Annual",
+            index_urls=(),
+            seed_urls=("file://data/manual/ERIC%20-%202025_26%20-%20Site%20data.csv.gz",),
+            loader="eric_site",
+            default_period="2025/26",
+            note="Supplied by Jon as a Numbers file (20 Oct 2026), converted to CSV and committed (public data, OGL). "
+            "Replace with the official CSV link via SEED_URLS_ERIC_SITE when available.",
+        ),
+        SourceSpec(
             key="hes",
             name="Hospital Episode Statistics, admitted patient care: provider level analysis",
             owner="NHS England",

@@ -19,7 +19,7 @@ from app.models import Metric, Org, RefreshRun, SourceFile
 from app.reference import seed_orgs
 from app.sources import fetch
 from app.sources.discover import discover
-from app.sources.loaders import LOADER_VERSION, LOADERS, LoadResult
+from app.sources.loaders import LOADER_VERSION, LoadResult, get_loader
 from app.sources.registry import SOURCES, SourceSpec
 
 log = logging.getLogger("pipeline")
@@ -60,7 +60,8 @@ def _store(db: Session, spec: SourceSpec, sf: SourceFile, res: LoadResult) -> No
 def _members(spec: SourceSpec, url: str, data: bytes) -> list[tuple[str, bytes]]:
     if spec.kind == "zip_csv" or url.lower().split("?")[0].endswith(".zip"):
         return fetch.csv_members(data)
-    return [(unquote(url.rsplit("/", 1)[-1]), data)]
+    name = unquote(url.rsplit("/", 1)[-1])
+    return [(name[:-3] if name.endswith(".gz") else name, data)]
 
 
 def run_source(db: Session, key: str) -> dict:
@@ -76,7 +77,7 @@ def run_source(db: Session, key: str) -> dict:
         summary["failed"] += 1
         return summary
 
-    loader = LOADERS.get(spec.loader, LOADERS["generic"])
+    loader = get_loader(spec.loader)
     for f in found.files[:3]:  # newest-first lists; cap per run
         summary["files"] += 1
         try:
