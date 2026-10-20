@@ -6,6 +6,7 @@
 - New RTT metrics per provider: over 52 weeks (count and share), median and 92nd percentile wait (interpolated within week buckets, approximate), unknown clock starts, completed pathways admitted and non-admitted.
 - The Excel "Waiting Times by Hospital Trust" report was reviewed and not loaded: it is NHS England's interactive report over the same provider-by-specialty counts as the full CSV, and its summary cells hold no cached values.
 - Seed files supplied by hand are no longer capped at 3 per run (the cap hid the three NOF league tables; discovered files stay capped). `LOADER_VERSION` 4.
+- Refresh takes a Postgres advisory lock, so overlapping runs (a deploy-time run while another deploy was being replaced) queue instead of loading the same file twice. The first RTT/NOF load did exactly that and left 21,771 duplicate keys; `LOADER_VERSION` 5 forces a clean reload that replaces them.
 - 39 tests.
 
 ## 0.4.0 - 2026-10-20

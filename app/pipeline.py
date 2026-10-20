@@ -11,10 +11,10 @@ import traceback
 from urllib.parse import quote, unquote
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, func, insert, select, text
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.db import SessionLocal, engine
 from app.models import Metric, Org, RefreshRun, SourceFile
 from app.reference import seed_orgs
 from app.sources import fetch
@@ -126,10 +126,34 @@ def run_source(db: Session, key: str) -> dict:
     return summary
 
 
+class _db_lock:
+    """Cross-process lock (Postgres advisory lock, held on its own connection).
+
+    Two refreshes overlapping, for example a cron run and a deploy-time run, both loaded
+    the same new file and left duplicate rows. A second refresh now waits for the first,
+    then sees the file as unchanged. A no-op on SQLite (tests).
+    """
+    KEY = 72401190
+
+    def __enter__(self):
+        self.conn = None
+        if engine.dialect.name == "postgresql":
+            self.conn = engine.connect()
+            self.conn.execute(text("select pg_advisory_lock(:k)"), {"k": self.KEY})
+        return self
+
+    def __exit__(self, *exc):
+        if self.conn is not None:
+            try:
+                self.conn.execute(text("select pg_advisory_unlock(:k)"), {"k": self.KEY})
+            finally:
+                self.conn.close()
+
+
 def refresh(keys: list[str] | None = None, trigger: str = "manual") -> int:
     """Run the pipeline for the given sources (default all). Returns the RefreshRun id."""
     keys = keys or list(SOURCES)
-    with _lock:
+    with _lock, _db_lock():
         db = SessionLocal()
         try:
             run = RefreshRun(trigger=trigger, status="running")

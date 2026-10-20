@@ -25,3 +25,4 @@
 | D-021 | 2026-10-20 | Load RTT from the full CSV; do not load the Excel trust report | Same counts, no cached summary values, and the CSV allows the same percentiles to be computed and tested |
 | D-022 | 2026-10-20 | Exact RTT part codes; unknown clock start (Part_2A) kept separate | Mixing them overstated the waiting list by 1.19m and distorted the 18-week share |
 | D-023 | 2026-10-20 | Hand-supplied seed URLs are not capped per run | The cap is for newest-first discovery lists; seeds are an explicit finite list |
+| D-024 | 2026-10-20 | Serialise refreshes with a Postgres advisory lock | Overlapping deploys each ran the start-up refresh and double-loaded new files |
