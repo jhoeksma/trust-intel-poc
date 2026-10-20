@@ -50,3 +50,13 @@ Join to FHI reference (274): 237 matched (86.5%) with the successor map. Per sou
 ERIC site checks (2025/26): backlog £17.35bn across 203 trusts, of which £9.74bn rated high or significant risk; 27.9m m² gross internal floor area; £1.19bn energy cost; largest backlog Imperial College Healthcare (£992m). Verify these against the published ERIC national summary before any external use.
 
 Open: NOF and RTT need hand-supplied URLs (`SEED_URLS_NOF`, `SEED_URLS_RTT`); the strain score stays blank until NOF loads. Cron schedule is daily 05:00 UTC; the first cron run has not been observed yet (the 11:34 test schedule did not fire, so scheduled execution is still unproven).
+
+---
+
+# Third load (12:20 UTC): NOF and RTT in
+
+- nof: 202 trusts (134 acute, 10 ambulance, 58 mental health and community), 177 metric codes, Q1 2026/27. League tables agree with the trust data on segment, score and deficit flag for 202 of 202.
+- Adjusted segment (OF5200) across 202 trusts: segment 1: 28, 2: 43, 3: 109, 4: 22. Strain score now populated for all 202 (199 in the FHI reference list).
+- rtt: August 2026, 532 providers (144 in the FHI reference list; the rest are independent providers and non-trust organisations). National: 7.19m waiting, 65.2% within 18 weeks, 113k over 52 weeks.
+- Defects found and fixed during this load: RTT part filter included Part_2A (unknown clock start), inflating the waiting list by 1.19m; seed files were capped at 3 per run; overlapping start-up refreshes double-loaded files (21,771 duplicate keys), now serialised by an advisory lock and cleaned by a forced reload. Duplicate keys after reload: 0.
+- Open: the NOF reporting windows differ by metric (Jun-26, 2025, 12 months to June 2026); some values look odd (for example an acute trust with 6.39% on the 18-week community measure, ambulance response times of 1 to 5 minutes) and need checking against the published workbook before external use. RTT is one month only.
