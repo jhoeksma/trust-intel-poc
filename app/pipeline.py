@@ -157,3 +157,42 @@ def refresh(keys: list[str] | None = None, trigger: str = "manual") -> int:
 
 def refresh_in_background(keys: list[str] | None, trigger: str) -> None:
     threading.Thread(target=refresh, args=(keys, trigger), daemon=True).start()
+
+
+def run_report(db: Session) -> str:
+    """Plain-text summary of what is in the store: coverage per source, join rate, headline checks."""
+    from sqlalchemy import func
+    from app.reference import load_reference, load_successors
+    lines = ["== coverage by source =="]
+    for src, n, orgs, ps in db.execute(select(Metric.source_key, func.count(), func.count(func.distinct(Metric.ods_code)),
+                                              func.max(Metric.period_sort)).group_by(Metric.source_key).order_by(Metric.source_key)):
+        codes = db.scalar(select(func.count(func.distinct(Metric.metric_code))).where(Metric.source_key == src))
+        lines.append(f"{src}: {n} rows, {codes} metric codes, {orgs} orgs, latest period key {ps}")
+    ref = {r["ods_code"]: r for r in load_reference()}
+    succ = load_successors()
+    have = {c for (c,) in db.execute(select(Metric.ods_code).distinct())}
+    matched = {c for c in ref if c in have or succ.get(c) in have}
+    lines.append(f"== join == reference {len(ref)}, matched {len(matched)} ({100 * len(matched) / len(ref):.1f}%)")
+    per_src = {}
+    for src, ods in db.execute(select(Metric.source_key, Metric.ods_code).distinct()):
+        per_src.setdefault(src, set()).add(ods)
+    trusts = {c for c, r in ref.items() if r["kind"] == "Trust"}
+    for src, orgs in sorted(per_src.items()):
+        lines.append(f"  {src}: {len(orgs & set(ref))} of {len(ref)} reference orgs, {len(orgs - set(ref))} codes not in reference")
+    allsrc = set.intersection(*per_src.values()) if per_src else set()
+    lines.append(f"  trusts present in every loaded source: {len(allsrc & trusts)}")
+    lines.append("== headline checks ==")
+    for code in ("eric_site:backlog_total", "eric_site:backlog_high_significant", "eric_site:s02_01", "eric_site:energy_cost_total"):
+        v, n = db.execute(select(func.sum(Metric.value), func.count()).where(Metric.metric_code == code)).one()
+        lines.append(f"{code}: sum {v}, {n} trusts")
+    dup = db.scalar(select(func.count()).select_from(
+        select(Metric.ods_code, Metric.metric_code, Metric.period).group_by(Metric.ods_code, Metric.metric_code, Metric.period)
+        .having(func.count() > 1).subquery()))
+    lines.append(f"duplicate (org, metric, period) keys: {dup}")
+    unk = db.scalar(select(func.count()).where(Metric.period == "unknown"))
+    lines.append(f"rows with unknown period: {unk}")
+    fails = db.execute(select(SourceFile.source_key, SourceFile.status, SourceFile.error).where(
+        SourceFile.status.in_(("discovery_failed", "download_failed", "parse_failed"))).order_by(SourceFile.id.desc()).limit(6)).all()
+    for src, st, err in fails:
+        lines.append(f"issue {src} {st}: {(err or '')[:160]}")
+    return "\n".join(lines)

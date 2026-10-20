@@ -90,3 +90,11 @@ def test_loader_version_bump_forces_reload(db, monkeypatch):
     s = pipeline.run_source(db, "nof")
     assert s["loaded"] == 1 and s["unchanged"] == 0
     assert db.scalar(select(func.count()).select_from(Metric)) == 1
+
+
+def test_run_report_runs(db, monkeypatch):
+    from app.pipeline import run_report
+    _patch(monkeypatch, CSV)
+    pipeline.run_source(db, "nof")
+    text = run_report(db)
+    assert "nof:" in text and "duplicate (org, metric, period) keys: 0" in text

@@ -244,6 +244,7 @@ def load_generic(source_key: str, file_name: str, data: bytes, default_period: s
 
     if roles.org_code is None:
         profile["notes"] = ["no organisation code column detected; nothing loaded (profile only)"]
+        profile["loader_version"] = LOADER_VERSION
         result.mapper_status = "needs_review"
         result.row_count = len(sample)
         return result

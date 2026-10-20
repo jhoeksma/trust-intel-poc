@@ -8,7 +8,7 @@ import sys
 
 from app.db import SessionLocal
 from app.models import RefreshRun
-from app.pipeline import refresh
+from app.pipeline import refresh, run_report
 
 logging.basicConfig(level=logging.INFO)
 
@@ -18,5 +18,6 @@ if __name__ == "__main__":
     with SessionLocal() as db:
         run = db.get(RefreshRun, run_id)
         print(run.log)
+        print(run_report(db))
         print("status:", run.status)
         sys.exit(1 if run.status == "failed" else 0)

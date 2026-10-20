@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 - 2026-10-20
+- Refresh prints a run report (coverage per source, join rates, headline checks, duplicates, unknown periods, recent failures) to the logs.
+- Profile-only files (no organisation column) now carry a loader version, so they are no longer reloaded every run.
+- 34 tests.
+
 ## 0.3.0 - 2026-10-20
 - New source `eric_site`: ERIC 2025/26 site-level return (2,923 sites, 195 numeric measures) rolled up to 205 trusts. Supplied by Jon as a Numbers file, converted to CSV, committed as `data/manual/ERIC - 2025_26 - Site data.csv.gz` (public data, OGL). Dedicated loader `app/sources/eric_site.py`.
 - Derived trust measures: backlog (total, high and significant, share, per m²), energy cost and consumption (total, per m²), estates cost lines, unsuitable and empty floor area shares, site counts by type.
