@@ -13,8 +13,10 @@ Two published shapes, told apart by their header:
   duplicate OF5200/OF5202/OF5204 (checked: 202 of 202 identical on Q1 2026/27), so
   only the fields the trust data lacks are loaded: rank and the two likely ranges.
 
-Every trust-data row carries Trust_type, so one `nof:peer_group` metric (1 acute, 2 mental health and
-community, 3 ambulance; unit "group") is emitted per trust. League tables do not repeat it.
+Every trust-data row carries Trust_type and Trust_subtype, so one `nof:peer_group` metric (1 acute, 2 mental
+health and community, 3 ambulance) and one `nof:peer_subtype` metric (11 to 16 acute size/teaching/specialist
+classes, 21 community, 22 mental health and learning disability, 23 care trust, 31 ambulance), both unit "group", are
+emitted per trust. League tables do not repeat them.
 
 Reporting_date in the trust data varies per metric ("Jun-26", "2025", "12 months to
 June 2026"), so every row takes the file's Quarter as its period; the metric's own
@@ -42,6 +44,16 @@ def peer_group_code(trust_type: str | None) -> int | None:
     if "acute" in t:
         return 1
     return None
+
+
+SUBTYPES = [("teaching", 11), ("large", 12), ("medium", 13), ("multi", 14), ("small", 15), ("specialist", 16),
+            ("learning disability", 22), ("mental health", 22), ("care trust", 23), ("community", 21), ("ambulance", 31)]
+
+
+def peer_subtype_code(trust_subtype: str | None) -> int | None:
+    """NOF trust subtype as a stable number (see app/benchmark.py SUBTYPES for the labels)."""
+    t = (trust_subtype or "").lower()
+    return next((code for word, code in SUBTYPES if word in t), None)
 
 
 def _quarter(text: str, default_period):
@@ -109,6 +121,11 @@ def load_nof(source_key: str, file_name: str, data: bytes, default_period: str |
                 grouped.add((org, period.label))
                 result.metrics.append(_metric(f"{source_key}:peer_group", "NOF trust type (1 Acute, 2 Mental health and community, 3 Ambulance)",
                                               org, period, float(grp), source_key, "group"))
+            sub_code = peer_subtype_code(get(r, "trust_subtype"))
+            if sub_code and (org, period.label, "sub") not in grouped:
+                grouped.add((org, period.label, "sub"))
+                result.metrics.append(_metric(f"{source_key}:peer_subtype", "NOF trust subtype (code; labels in app/benchmark.py)",
+                                              org, period, float(sub_code), source_key, "group"))
             mid = get(r, "metric_id")
             val = _num(get(r, "value"))
             if not mid or val is None:

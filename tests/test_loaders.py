@@ -179,3 +179,18 @@ def test_nof_emits_peer_group_once_per_trust():
     g = [m for m in r.metrics if m["metric_code"] == "nof:peer_group"]
     assert len(g) == 1 and g[0]["value"] == 3.0 or g[0]["value"] == 2.0
     assert g[0]["value"] == 2.0 and g[0]["unit"] == "group"
+
+
+def test_nof_peer_subtype_codes():
+    from app.sources.nof import load_nof, peer_subtype_code
+    cases = {"Acute - Teaching": 11, "Acute - Large": 12, "Acute - Medium": 13, "Acute - Multi-Service": 14, "Acute - Small": 15,
+             "Acute - Specialist": 16, "Community": 21, "Mental Health and Learning Disability": 22, "Care Trust": 23, "Ambulance": 31}
+    for text, code in cases.items():
+        assert peer_subtype_code(text) == code, text
+    assert peer_subtype_code("") is None
+    hdr = "Trust_code,Trust_name,Trust_type,Trust_subtype,Quarter,Metric_ID,Metric_description,Value,Units\n"
+    body = ("RXX,Alpha,Acute trust,Acute - Teaching,Q1 2026/27,OF5200,Segment,2,segment\n"
+            "RXX,Alpha,Acute trust,Acute - Teaching,Q1 2026/27,OF5202,Score,2.1,score\n")
+    r = load_nof("nof", "NOF - Q1 2026_27 - Trust data - Acute.csv", (hdr + body).encode())
+    s = [m for m in r.metrics if m["metric_code"] == "nof:peer_subtype"]
+    assert len(s) == 1 and s[0]["value"] == 11.0

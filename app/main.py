@@ -55,7 +55,12 @@ def index():
 
 @app.get("/api/trusts", dependencies=[Depends(require_auth)])
 def trusts(db: Session = Depends(get_db)):
-    return indicators.trust_list(db)
+    rows = indicators.trust_list(db)
+    groups, subs = benchmark.peer_groups(db), benchmark.subtypes(db)
+    for r in rows:
+        r["peer_group"] = benchmark.group_of(groups, r["ods_code"])
+        r["subtype"] = subs.get(r["ods_code"])
+    return rows
 
 
 @app.get("/api/trusts/{ods}", dependencies=[Depends(require_auth)])
@@ -87,22 +92,30 @@ def benchmark_metrics(db: Session = Depends(get_db)):
     return benchmark.catalogue(db)
 
 
+@app.get("/api/benchmark/groups", dependencies=[Depends(require_auth)])
+def benchmark_groups(db: Session = Depends(get_db)):
+    """Trust types and subtypes (with organisation counts) for filters."""
+    return benchmark.group_options(db)
+
+
 @app.get("/api/benchmark/metric", dependencies=[Depends(require_auth)])
-def benchmark_metric(code: str, group: str | None = None, db: Session = Depends(get_db)):
-    """One metric across every organisation (optionally one peer group), ranked, with distribution statistics."""
+def benchmark_metric(code: str, group: str | None = None, subtype: str | None = None, db: Session = Depends(get_db)):
+    """One metric across every organisation (optionally one trust type or subtype), ranked, with distribution statistics."""
+    if subtype is not None and subtype not in benchmark.SUBTYPE_LABELS:
+        raise HTTPException(422, "subtype must be one of " + ", ".join(benchmark.SUBTYPE_LABELS))
     if group is not None and group not in benchmark.GROUP_LABELS:
         raise HTTPException(422, "group must be one of " + ", ".join(benchmark.GROUP_LABELS))
-    view = benchmark.metric_view(db, code, group)
+    view = benchmark.metric_view(db, code, group, subtype)
     if view is None:
         raise HTTPException(404, "Unknown or too sparse metric (needs at least 10 organisations)")
     return view
 
 
 @app.get("/api/benchmark/trust/{ods}", dependencies=[Depends(require_auth)])
-def benchmark_trust(ods: str, codes: str = "", scope: str = "peers", db: Session = Depends(get_db)):
+def benchmark_trust(ods: str, codes: str = "", scope: str = "subtype", db: Session = Depends(get_db)):
     """Where one organisation sits on each chosen metric. No codes given means the core fields."""
-    if scope not in ("peers", "national"):
-        raise HTTPException(422, "scope must be peers or national")
+    if scope not in ("subtype", "peers", "national"):
+        raise HTTPException(422, "scope must be subtype, peers or national")
     ods = ods.upper()
     if db.get(Org, ods) is None:
         raise HTTPException(404, "Unknown organisation code")

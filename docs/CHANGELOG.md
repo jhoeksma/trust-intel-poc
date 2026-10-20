@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0 - 2026-10-20
+
+- NOF trust subtype (Acute - Teaching, Large, Medium, Multi-Service, Small, Specialist; Community; Mental Health and Learning Disability; Care Trust; Ambulance) loaded as `nof:peer_subtype` from each file's Trust_subtype. LOADER_VERSION 8 forces the NOF files to reload.
+- Filtering by trust type or subtype: Dashboard list (new Type column and filter; strain counts follow the filter), Explorer ("Show" now offers each type and subtype with counts) and `GET /api/benchmark/metric?subtype=`. New `GET /api/benchmark/groups` for filter options; `GET /api/trusts` now carries `peer_group` and `subtype`.
+- Trust dashboard compares with the trust's subtype by default (new scope `subtype`), widening to the trust type and then to all organisations whenever fewer than 5 organisations have a value; each row says which pool it used.
+- Tests: 61 passing.
+
 ## 0.7.0 - 2026-10-20
 
 - Benchmarking API: `GET /api/benchmark/metrics` (comparable measures, direction, core flag), `GET /api/benchmark/metric?code=&group=` (one measure across every organisation, ranked, with distribution statistics) and `GET /api/benchmark/trust/{ods}?codes=&scope=peers|national` (rank, share beaten, quartile and gap to median per chosen measure). Logic in `app/benchmark.py`.

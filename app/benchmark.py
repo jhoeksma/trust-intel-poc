@@ -9,6 +9,10 @@ Rules, kept deliberately simple so a number on screen can always be explained:
   The NOF trust type comes from the Trust_type column of the NOF files (metric nof:peer_group); where that is
   missing it is inferred from which NOF measures an organisation reports (as scripts/review.py does). Organisations with no NOF
   data fall into "other" and are only ever compared nationally.
+* Within a trust type NOF also publishes a subtype (Acute - Teaching, Large, Medium, Multi-Service, Small, Specialist;
+  Community, Mental Health and Learning Disability, Care Trust; Ambulance), written by the loader as nof:peer_subtype.
+  Dashboards compare with the subtype by default, falling back to the type and then to everyone when fewer than
+  MIN_PEERS (5) members have a value.
 * Rank 1 is best when we know which direction is good (POLARITY below), otherwise rank 1 is the
   highest value and nothing is coloured good or bad. Ties share the better rank.
 * better_than_pct is the share of the other organisations in the comparison that this one beats
@@ -47,7 +51,16 @@ CORE_FIELDS = ["nof:of5200", "nof:of5202", "nof:league_rank", "cqc:overall", "rt
                "cqc:core_services_below_good_pct", "backlog_per_sqm"]
 
 PEER_GROUP_CODE = "nof:peer_group"  # written by the NOF loader from each file's Trust_type
+SUBTYPE_CODE = "nof:peer_subtype"  # ... and from Trust_subtype (see app/sources/nof.py SUBTYPES)
 _GROUP_BY_VALUE = {1: "acute", 2: "mhc", 3: "ambulance"}
+# code -> (key, label, group). Codes are the loader's; keys appear in URLs and the UI.
+SUBTYPES = {11: ("acute_teaching", "Acute - Teaching", "acute"), 12: ("acute_large", "Acute - Large", "acute"),
+            13: ("acute_medium", "Acute - Medium", "acute"), 14: ("acute_multi_service", "Acute - Multi-Service", "acute"),
+            15: ("acute_small", "Acute - Small", "acute"), 16: ("acute_specialist", "Acute - Specialist", "acute"),
+            21: ("community", "Community", "mhc"), 22: ("mhld", "Mental Health and Learning Disability", "mhc"),
+            23: ("care_trust", "Care Trust", "mhc"), 31: ("ambulance", "Ambulance", "ambulance")}
+SUBTYPE_LABELS = {k: lbl for k, lbl, _ in SUBTYPES.values()}
+MIN_PEERS = 5
 MIN_ORGS = 10
 _cache: dict = {}
 
@@ -67,7 +80,7 @@ def polarity(code: str) -> str | None:
 
 def _companion(code: str) -> bool:
     """Rank and likely-range columns describe another metric; they are not comparable measures themselves."""
-    return code.endswith(":rank") or code.endswith("_low") or code.endswith("_high") or code == PEER_GROUP_CODE
+    return code.endswith(":rank") or code.endswith("_low") or code.endswith("_high") or code in (PEER_GROUP_CODE, SUBTYPE_CODE)
 
 
 def catalogue(db: Session) -> list[dict]:
@@ -140,6 +153,30 @@ def group_of(groups: dict, ods: str) -> str:
     return groups.get(ods, "other")
 
 
+def subtypes(db: Session) -> dict[str, str]:
+    """ods_code -> subtype key (e.g. acute_teaching), from NOF's Trust_subtype. Organisations without one are absent."""
+    stamp = db.scalar(select(func.max(Metric.id))) or 0
+    hit = _cache.get("subtypes")
+    if hit and hit[0] == stamp:
+        return hit[1]
+    out = {o: SUBTYPES[int(v["value"])][0] for o, v in latest_values(db, SUBTYPE_CODE).items() if int(v["value"]) in SUBTYPES}
+    _cache["subtypes"] = (stamp, out)
+    return out
+
+
+def group_options(db: Session) -> dict:
+    """Filter options with counts: trust types and subtypes among organisations NOF classifies."""
+    groups, subs = peer_groups(db), subtypes(db)
+    gc = {k: 0 for k in GROUP_LABELS}
+    for o in set(groups) | set(subs):
+        gc[group_of(groups, o)] += 1
+    sc = {}
+    for k in subs.values():
+        sc[k] = sc.get(k, 0) + 1
+    return {"groups": [{"key": k, "label": GROUP_LABELS[k], "n": n} for k, n in gc.items() if n],
+            "subtypes": [{"key": k, "label": lbl, "group": g, "n": sc[k]} for _, (k, lbl, g) in sorted(SUBTYPES.items()) if k in sc]}
+
+
 def _pct(sorted_vals: list[float], p: float) -> float:
     if not sorted_vals:
         return float("nan")
@@ -174,13 +211,13 @@ def position(values: list[float], mine: float, pol: str | None) -> dict:
     return out
 
 
-def metric_view(db: Session, code: str, group: str | None = None) -> dict | None:
-    """Every organisation's latest value for one metric, with distribution stats; optionally one peer group."""
+def metric_view(db: Session, code: str, group: str | None = None, subtype: str | None = None) -> dict | None:
+    """Every organisation's latest value for one metric, with distribution stats; optionally one trust type or subtype."""
     meta = next((r for r in catalogue(db) if r["metric_code"] == code), None)
     if meta is None:
         return None
     vals = latest_values(db, code)
-    groups = peer_groups(db)
+    groups, subs = peer_groups(db), subtypes(db)
     names = {o: n for o, n in db.execute(select(Org.ods_code, Org.name))}
     strain = latest_values(db, SEGMENT_CODE)
     pts = []
@@ -188,18 +225,25 @@ def metric_view(db: Session, code: str, group: str | None = None) -> dict | None
         g = group_of(groups, ods)
         if group and g != group:
             continue
+        if subtype and subs.get(ods) != subtype:
+            continue
         pts.append({"ods_code": ods, "name": names.get(ods), "value": v["value"], "period": v["period"], "group": g,
+                    "subtype": subs.get(ods), "subtype_label": SUBTYPE_LABELS.get(subs.get(ods)),
                     "strain": int(strain[ods]["value"]) if ods in strain else None})
     pol = meta["polarity"]
     pts.sort(key=lambda p: (p["value"] if pol == "lower" else -p["value"], p["ods_code"]))
-    return {**meta, "group": group, "groups": GROUP_LABELS, "stats": stats([p["value"] for p in pts]),
+    return {**meta, "group": group, "subtype": subtype, "groups": GROUP_LABELS, "subtype_labels": SUBTYPE_LABELS, "stats": stats([p["value"] for p in pts]),
             "points": pts, "ranking": "best first" if pol else "highest first"}
 
 
-def trust_benchmark(db: Session, ods: str, codes: list[str], scope: str = "peers") -> dict:
-    """For each metric: this organisation's value and where it sits among peers (or nationally)."""
-    groups = peer_groups(db)
-    mine_group = group_of(groups, ods)
+def trust_benchmark(db: Session, ods: str, codes: list[str], scope: str = "subtype") -> dict:
+    """For each metric: this organisation's value and where it sits among its subtype, trust type or everyone.
+
+    scope "subtype" falls back to the trust type, then to all organisations, whenever the narrower group has fewer
+    than MIN_PEERS members with a value; scope "peers" starts at the trust type. Each row says which pool it used.
+    """
+    groups, subs = peer_groups(db), subtypes(db)
+    mine_group, mine_sub = group_of(groups, ods), subs.get(ods)
     cat = {r["metric_code"]: r for r in catalogue(db)}
     rows = []
     for code in codes:
@@ -208,20 +252,27 @@ def trust_benchmark(db: Session, ods: str, codes: list[str], scope: str = "peers
             continue
         vals = latest_values(db, code)
         national = {o: v["value"] for o, v in vals.items()}
-        peers = {o: v for o, v in national.items() if group_of(groups, o) == mine_group} if mine_group != "other" else {}
-        use_peers = scope == "peers" and len(peers) >= 5 and ods in peers
-        pool = peers if use_peers else national
-        row = {**meta, "scope_used": "peers" if use_peers else "national", "peer_group": mine_group if use_peers else None,
+        pools = []
+        if scope == "subtype" and mine_sub:
+            pools.append(("subtype", SUBTYPE_LABELS[mine_sub], {o: v for o, v in national.items() if subs.get(o) == mine_sub}))
+        if scope in ("subtype", "peers") and mine_group != "other":
+            pools.append(("peers", GROUP_LABELS[mine_group], {o: v for o, v in national.items() if group_of(groups, o) == mine_group}))
+        used, label, pool = "national", "all organisations", national
+        for kind, lbl, p in pools:
+            if len(p) >= MIN_PEERS and ods in p:
+                used, label, pool = kind, lbl, p
+                break
+        row = {**meta, "scope_used": used, "peer_label": label, "peer_group": mine_group if used != "national" else None,
                "value": None, "period": None, "stats": stats(list(pool.values())), "national_median": stats(list(national.values())).get("median")}
         if ods in vals:
             row["value"], row["period"] = vals[ods]["value"], vals[ods]["period"]
             if ods in pool:
                 row.update(position(list(pool.values()), vals[ods]["value"], meta["polarity"]))
-                med = row["stats"]["median"]
-                row["vs_median"] = round(vals[ods]["value"] - med, 6)
+                row["vs_median"] = round(vals[ods]["value"] - row["stats"]["median"], 6)
         rows.append(row)
     from app.reference import load_successors
     merged = load_successors().get(ods)
     merged_name = db.scalar(select(Org.name).where(Org.ods_code == merged)) if merged else None
-    return {"ods_code": ods, "merged_into": merged, "merged_into_name": merged_name, "peer_group": mine_group, "peer_group_label": GROUP_LABELS[mine_group],
+    return {"ods_code": ods, "merged_into": merged, "merged_into_name": merged_name, "peer_group": mine_group,
+            "peer_group_label": GROUP_LABELS[mine_group], "subtype": mine_sub, "subtype_label": SUBTYPE_LABELS.get(mine_sub),
             "scope": scope, "metrics": rows}

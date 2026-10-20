@@ -48,7 +48,7 @@ tr.me td{background:var(--bg);font-weight:600}
 <nav id="nav"></nav><span class="mute" style="margin-left:auto">Internal spike. Public NHS data joined by ODS code.</span></header>
 <main id="main"></main>
 <script>
-var state = {tab: 'dashboard', trusts: [], sort: 'strain', dir: -1, filter: '', cmp: [], fields: null, scope: null, cat: null};
+var state = {tab: 'dashboard', trusts: [], sort: 'strain', dir: -1, filter: '', cmp: [], fields: null, scope: null, cat: null, gopts: null, typeFilter: ''};
 var TABS = [['dashboard', 'Dashboard'], ['trust', 'Trust dashboard'], ['explorer', 'Explorer'], ['compare', 'Compare'], ['sources', 'Sources']];
 
 function api(path, opts) {
@@ -79,33 +79,34 @@ function go(tab, arg) {
 function main(html) { document.getElementById('main').innerHTML = html; }
 
 function dashboard() {
-  api('/api/trusts').then(function (rows) {
-    state.trusts = rows; drawDashboard();
+  Promise.all([api('/api/trusts'), getGroups()]).then(function (res) {
+    state.trusts = res[0]; drawDashboard();
   }).catch(fail);
 }
 function drawDashboard() {
   var f = state.filter.toLowerCase();
   var rows = state.trusts.filter(function (t) {
-    return !f || (t.name || '').toLowerCase().indexOf(f) >= 0 || t.ods_code.toLowerCase().indexOf(f) >= 0 ||
-      t.suppliers.join(' ').toLowerCase().indexOf(f) >= 0;
+    return matchesType(t, state.typeFilter) && (!f || (t.name || '').toLowerCase().indexOf(f) >= 0 || t.ods_code.toLowerCase().indexOf(f) >= 0 ||
+      t.suppliers.join(' ').toLowerCase().indexOf(f) >= 0);
   });
   rows.sort(function (a, b) {
     var x = a[state.sort], y = b[state.sort];
     if (x == null && y == null) { return 0; } if (x == null) { return 1; } if (y == null) { return -1; }
     return (x > y ? 1 : x < y ? -1 : 0) * state.dir;
   });
-  var scored = state.trusts.filter(function (t) { return t.strain; });
+  var scored = state.trusts.filter(function (t) { return t.strain && matchesType(t, state.typeFilter); });
   var dist = [1, 2, 3, 4, 5].map(function (s) { return scored.filter(function (t) { return t.strain === s; }).length; });
   var h = '<div class="card"><div class="grid">' + dist.map(function (n, i) {
     return '<div>' + pill(i + 1) + ' <b>' + n + '</b> <span class="mute">trusts at strain ' + (i + 1) + '</span></div>';
   }).join('') + '</div><p class="mute" style="margin:8px 0 0">Strain 1–5 is a v0 indicator derived from the NHS Oversight Framework segment. ' +
-    state.trusts.length + ' organisations loaded.</p></div>';
-  h += '<div class="card"><input id="flt" placeholder="Filter by name, code or supplier" value="' + esc(state.filter) + '" oninput="state.filter=this.value;drawDashboard();document.getElementById(\'flt\').focus()">';
+    state.trusts.length + ' organisations loaded' + (state.typeFilter ? '; strain counts are for the selected type.' : '.') + '</p></div>';
+  h += '<div class="card"><input id="flt" placeholder="Filter by name, code or supplier" value="' + esc(state.filter) + '" oninput="state.filter=this.value;drawDashboard();document.getElementById(\'flt\').focus()"> ' +
+    '<select id="tf" onchange="state.typeFilter=this.value;drawDashboard()" title="Filter by NHS Oversight Framework trust type or subtype">' + typeOptions(state.typeFilter) + '</select> <span class="mute">' + rows.length + ' shown</span>';
   h += '<div class="wrap"><table><tr>' +
-    [['name', 'Trust'], ['ods_code', 'Code'], ['strain', 'Strain'], ['cqc_overall', 'CQC'], ['rtt_pct_18w', 'RTT within 18w %'], ['rtt_waiting', 'RTT waiting list'], ['suppliers', 'Suppliers']]
+    [['name', 'Trust'], ['ods_code', 'Code'], ['subtype', 'Type'], ['strain', 'Strain'], ['cqc_overall', 'CQC'], ['rtt_pct_18w', 'RTT within 18w %'], ['rtt_waiting', 'RTT waiting list'], ['suppliers', 'Suppliers']]
       .map(function (c) { return '<th class="' + (c[0].indexOf('rtt') === 0 ? 'n' : '') + '" onclick="sortBy(\'' + c[0] + '\')">' + c[1] + '</th>'; }).join('') + '<th></th></tr>';
   rows.slice(0, 400).forEach(function (t) {
-    h += '<tr><td><a onclick="go(\'trust\',\'' + t.ods_code + '\')">' + esc(t.name || t.ods_code) + '</a></td><td>' + esc(t.ods_code) + '</td><td>' + pill(t.strain) + '</td><td>' + cqcPill(t.cqc_overall) + '</td>' +
+    h += '<tr><td><a onclick="go(\'trust\',\'' + t.ods_code + '\')">' + esc(t.name || t.ods_code) + '</a></td><td>' + esc(t.ods_code) + '</td><td class="mute">' + esc(subLabel(t.subtype) || groupLabel(t.peer_group)) + '</td><td>' + pill(t.strain) + '</td><td>' + cqcPill(t.cqc_overall) + '</td>' +
       '<td class="n">' + num(t.rtt_pct_18w) + '</td><td class="n">' + num(t.rtt_waiting, 0) + '</td><td>' +
       t.suppliers.map(function (s) { return '<span class="tag">' + esc(s) + '</span>'; }).join('') + '</td>' +
       '<td><input type="checkbox" ' + (state.cmp.indexOf(t.ods_code) >= 0 ? 'checked' : '') + ' onchange="toggleCmp(\'' + t.ods_code + '\',this.checked)" title="Add to compare"></td></tr>';
@@ -132,6 +133,29 @@ function coreCodes(cat) {
 }
 function getCatalogue() {
   return state.cat ? Promise.resolve(state.cat) : api('/api/benchmark/metrics').then(function (c) { state.cat = c; return c; });
+}
+function getGroups() {
+  return state.gopts ? Promise.resolve(state.gopts) : api('/api/benchmark/groups').then(function (g) { state.gopts = g; return g; });
+}
+/* Type filter values: '' (all), 'g:<trust type key>' or 's:<subtype key>'. */
+function typeOptions(selected) {
+  var g = state.gopts, h = '<option value="">All organisations</option><optgroup label="Trust type">';
+  g.groups.forEach(function (x) { h += '<option value="g:' + x.key + '"' + (selected === 'g:' + x.key ? ' selected' : '') + '>' + esc(x.label) + ' (' + x.n + ')</option>'; });
+  h += '</optgroup><optgroup label="Subtype">';
+  g.subtypes.forEach(function (x) { h += '<option value="s:' + x.key + '"' + (selected === 's:' + x.key ? ' selected' : '') + '>' + esc(x.label) + ' (' + x.n + ')</option>'; });
+  return h + '</optgroup>';
+}
+function subLabel(key) {
+  var hit = state.gopts && state.gopts.subtypes.filter(function (x) { return x.key === key; })[0];
+  return hit ? hit.label : '';
+}
+function groupLabel(key) {
+  var hit = state.gopts && state.gopts.groups.filter(function (x) { return x.key === key; })[0];
+  return hit ? hit.label : '';
+}
+function matchesType(t, f) {
+  if (!f) { return true; }
+  return f.indexOf('g:') === 0 ? t.peer_group === f.slice(2) : t.subtype === f.slice(2);
 }
 function getTrusts() {
   return state.trusts.length ? Promise.resolve(state.trusts) : api('/api/trusts').then(function (r) { state.trusts = r; return r; });
@@ -184,13 +208,13 @@ function trustView(code) {
       var saved = lsGet('fhi_fields');
       state.fields = (saved && saved.length) ? saved : coreCodes(cat);
     }
-    if (state.scope == null) { state.scope = lsGet('fhi_scope') || 'peers'; }
+    if (state.scope == null) { state.scope = lsGet('fhi_scope') || 'subtype'; }
     var row = state.trusts.filter(function (x) { return x.ods_code === t.ods_code; })[0] || {};
     var h = '<div class="card"><div class="top"><div><h2 style="margin:0">' + esc(t.name || t.ods_code) + ' <span class="mute">' + esc(t.ods_code) + '</span></h2>' +
       '<p style="margin:6px 0 0">Strain ' + pill(t.strain.score) + ' ' + esc(t.strain.label) + ' &nbsp; CQC ' + cqcPill(row.cqc_overall) + ' &nbsp; <span id="grp" class="mute"></span></p></div>' +
       '<div class="ctl"><label class="mute">Switch trust <input list="tl" id="sw" placeholder="Name or code" onchange="switchTrust(this.value)"></label>' +
       '<datalist id="tl">' + state.trusts.map(function (x) { return '<option value="' + esc(x.ods_code) + '">' + esc(x.name) + '</option>'; }).join('') + '</datalist>' +
-      '<label class="mute">Compare against <select id="scope" onchange="setScope(this.value)"><option value="peers">Same trust type</option><option value="national">All organisations</option></select></label></div></div></div>';
+      '<label class="mute">Compare against <select id="scope" onchange="setScope(this.value)"><option value="subtype">Same subtype</option><option value="peers">Same trust type</option><option value="national">All organisations</option></select></label></div></div></div>';
     h += '<div class="card"><b>Fields</b> <span class="mute">core fields are shown by default; add or remove any measure</span>' +
       '<div id="chips" style="margin:8px 0"></div>' +
       '<input id="pq" placeholder="Search measures, e.g. waiting, backlog, CQC, workforce" oninput="drawPicker()" style="width:100%;max-width:520px"> ' +
@@ -270,12 +294,13 @@ function refreshBench() {
     var mb = document.getElementById('merged');
     if (mb) { mb.innerHTML = b.merged_into ? '<div class="callout">This code has merged into <a onclick="go(\'trust\',\'' + esc(b.merged_into) + '\')"><b>' + esc(b.merged_into_name || b.merged_into) + ' (' + esc(b.merged_into) + ')</b></a>. Newer data sits under the successor.</div>' : ''; }
     var g = document.getElementById('grp');
-    if (g) { g.textContent = b.peer_group_label; }
+    if (g) { g.textContent = b.subtype_label ? b.subtype_label + ' (' + b.peer_group_label.toLowerCase() + ')' : b.peer_group_label; }
     var counts = {1: 0, 2: 0, 3: 0, 4: 0};
     b.metrics.forEach(function (m) { if (m.quartile) { counts[m.quartile]++; } });
     var total = counts[1] + counts[2] + counts[3] + counts[4];
     var h = '<div class="card"><b>Where this trust sits</b> <span class="mute">' +
-      (state.scope === 'peers' ? 'against other ' + esc(b.peer_group_label.toLowerCase()) + ' where there are enough, otherwise nationally' : 'against all organisations with data') + '</span>';
+      (state.scope === 'national' ? 'against all organisations with data'
+        : 'against its ' + (state.scope === 'subtype' && b.subtype_label ? esc(b.subtype_label) + ' peers' : esc(b.peer_group_label.toLowerCase())) + ', widening to the trust type and then to everyone where there are fewer than 5 with a value') + '</span>';
     if (total) {
       h += '<div style="margin-top:8px">' + [1, 2, 3, 4].map(function (q) {
         return '<span class="qchip" style="background:' + QCOL[q] + '">' + counts[q] + '</span> ' + QTXT[q] + ' &nbsp; ';
@@ -291,19 +316,19 @@ function benchRow(m) {
     ? '<span class="mute">No value for this trust</span>'
     : '<b>' + esc(fmt(m.value, m.unit)) + '</b> <span class="mute">' + esc(m.period) + '</span>';
   var rk = m.rank == null ? '' : '<div><b>' + m.rank + '</b> of ' + m.n + ' <span class="mute">(' + (m.polarity ? 'best first' : 'highest first') + ')</span></div>' +
-    '<div class="mute">' + (m.polarity ? 'Better than ' : 'Above ') + num(m.better_than_pct, 0) + '% of ' + (m.scope_used === 'peers' ? 'peers' : 'organisations') + '</div>';
+    '<div class="mute">' + (m.polarity ? 'Better than ' : 'Above ') + num(m.better_than_pct, 0) + '% of ' + esc(m.peer_label || 'organisations') + '</div>';
   var vs = (m.vs_median == null || m.unit === 'rating' || m.unit === 'segment' || m.unit === 'flag') ? '' :
     '<div class="mute">' + (m.vs_median > 0 ? '+' : '') + num(m.vs_median, Math.abs(m.vs_median) >= 100 ? 0 : 2) + ' vs median</div>';
   var tag = m.quartile ? '<span class="qchip" style="background:' + QCOL[m.quartile] + '">' + QTXT[m.quartile] + '</span>' : '<span class="tag">no direction</span>';
   return '<div class="mrow"><div class="ml"><div>' + esc(m.label) + '</div><div class="mute" style="font-size:12px">' + esc(m.source_label) + ' · ' + esc(dirText(m.polarity)) +
-    (m.scope_used === 'national' && state.scope === 'peers' ? ' · compared nationally (too few peers)' : '') +
+    (m.scope_used === 'national' && state.scope !== 'national' ? ' · compared with everyone (too few peers)' : m.scope_used === 'peers' && state.scope === 'subtype' ? ' · compared with the trust type (too few in the subtype)' : '') +
     ' · <a onclick="go(\'explorer\',\'' + esc(m.metric_code) + '\')">explore</a></div></div>' +
     '<div class="mv">' + pos + '<div style="margin-top:4px">' + tag + '</div></div><div class="mk">' + rk + vs + '</div><div class="mc">' + rangeBar(m) + '</div></div>';
 }
 
 /* ---------- metric explorer ---------- */
 function explorerView(code) {
-  Promise.all([getCatalogue(), getTrusts()]).then(function (res) {
+  Promise.all([getCatalogue(), getTrusts(), getGroups()]).then(function (res) {
     var cat = res[0];
     if (code) { state.metric = code; }
     if (!state.metric || !cat.some(function (c) { return c.metric_code === state.metric; })) {
@@ -315,13 +340,11 @@ function explorerView(code) {
     var h = '<div class="card"><div class="ctl" style="flex-wrap:wrap">' +
       '<label class="mute">Find a measure<br><input id="mq" placeholder="Search measures" oninput="drawMetricSelect()" style="width:240px"></label>' +
       '<label class="mute">Measure<br><select id="msel" onchange="pickMetric(this.value)" style="max-width:420px"></select></label>' +
-      '<label class="mute">Show<br><select id="eg" onchange="state.egroup=this.value;drawExplorer()"><option value="">All organisations</option>' +
-      '<option value="acute">Acute trusts</option><option value="mhc">Mental health and community</option><option value="ambulance">Ambulance</option><option value="other">Other organisations</option></select></label>' +
+      '<label class="mute">Show<br><select id="eg" onchange="state.egroup=this.value;drawExplorer()">' + typeOptions(state.egroup) + '</select></label>' +
       '<label class="mute">Highlight a trust<br><input list="tl2" id="hl" placeholder="Name or code" onchange="setHl(this.value)"></label>' +
       '<datalist id="tl2">' + state.trusts.map(function (x) { return '<option value="' + esc(x.ods_code) + '">' + esc(x.name) + '</option>'; }).join('') + '</datalist></div></div>' +
       '<div id="ex"></div>';
     main(h);
-    document.getElementById('eg').value = state.egroup;
     var nm = state.trusts.filter(function (x) { return x.ods_code === state.hl; })[0];
     document.getElementById('hl').value = nm ? nm.ods_code : '';
     drawMetricSelect(); drawExplorer();
@@ -352,12 +375,14 @@ function drawExplorer() {
   var box = document.getElementById('ex');
   box.innerHTML = '<div class="card mute">Loading…</div>';
   var asked = state.metric + '|' + state.egroup;
-  api('/api/benchmark/metric?code=' + enc(state.metric) + (state.egroup ? '&group=' + state.egroup : '')).then(function (v) {
+  var eg = state.egroup || '';
+  var q = eg.indexOf('g:') === 0 ? '&group=' + eg.slice(2) : eg.indexOf('s:') === 0 ? '&subtype=' + eg.slice(2) : '';
+  api('/api/benchmark/metric?code=' + enc(state.metric) + q).then(function (v) {
     if (asked !== state.metric + '|' + state.egroup) { return; }
     state.view = v;
     var s = v.stats, mine = v.points.filter(function (p) { return p.ods_code === state.hl; })[0];
     var h = '<div class="card"><h3 style="margin:0">' + esc(v.label) + '</h3><p class="mute" style="margin:4px 0 8px">' + esc(v.source_label) + ' · ' + esc(dirText(v.polarity)) + ' · ' +
-      s.n + ' organisations' + (v.group ? ' (' + esc(v.groups[v.group]) + ')' : '') + '</p>';
+      s.n + ' organisations' + (v.subtype ? ' (' + esc(v.subtype_labels[v.subtype]) + ')' : v.group ? ' (' + esc(v.groups[v.group]) + ')' : '') + '</p>';
     h += '<div class="grid" style="margin-bottom:10px">' + [['Lowest', s.min], ['Lower quartile', s.p25], ['Median', s.median], ['Mean', s.mean], ['Upper quartile', s.p75], ['Highest', s.max]].map(function (x) {
       return '<div><div class="mute" style="font-size:12px">' + x[0] + '</div><b>' + esc(fmt(x[1], v.unit)) + '</b></div>';
     }).join('') + '</div>';
@@ -367,7 +392,7 @@ function drawExplorer() {
         ' · ' + (v.polarity ? 'better than ' : 'above ') + num(r.beaten, 0) + '% of the others' + (v.polarity ? ' · <span class="qchip" style="background:' + QCOL[quartileOf(r.beaten)] + '">' + QTXT[quartileOf(r.beaten)] + '</span>' : '') +
         ' · <a onclick="go(\'trust\',\'' + esc(mine.ods_code) + '\')">open dashboard</a></div>';
     } else if (state.hl) {
-      h += '<div class="callout mute">No value for ' + esc(state.hl) + (v.group ? ' in this group.' : ' on this measure.') + '</div>';
+      h += '<div class="callout mute">No value for ' + esc(state.hl) + (v.group || v.subtype ? ' in this group.' : ' on this measure.') + '</div>';
     }
     h += (s.distinct <= 8 ? histogram(v, mine) : swarm(v, mine)) + '</div>';
     h += '<div class="card"><input id="rq" placeholder="Filter the ranking by name or code" oninput="drawRanking()" style="width:100%;max-width:360px"><div id="rank" class="rankbox"></div></div>';
@@ -436,7 +461,7 @@ function drawRanking() {
     if (shown++ >= 600) { return; }
     var mineRow = p.ods_code === state.hl;
     rows += '<tr' + (mineRow ? ' class="me" id="merow"' : '') + '><td class="n">' + rank + '</td><td><a onclick="go(\'trust\',\'' + esc(p.ods_code) + '\')">' + esc(p.name || p.ods_code) + '</a> <span class="mute">' + esc(p.ods_code) + '</span></td>' +
-      '<td><span class="tag">' + esc(v.groups[p.group]) + '</span></td><td class="n">' + esc(fmt(p.value, v.unit)) + '</td>' +
+      '<td><span class="tag">' + esc(p.subtype_label || v.groups[p.group]) + '</span></td><td class="n">' + esc(fmt(p.value, v.unit)) + '</td>' +
       '<td style="width:26%"><div class="bar" style="width:' + Math.max(1, Math.round(100 * Math.abs(p.value) / topv)) + '%;background:' + (mineRow ? 'var(--accent)' : 'var(--dot)') + '"></div></td></tr>';
   });
   var box = document.getElementById('rank');

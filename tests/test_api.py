@@ -186,3 +186,44 @@ def test_merged_code_points_to_successor(bench, db):
     b = bench.get("/api/benchmark/trust/RNK").json()
     assert b["merged_into"] == "G6V2S" and b["merged_into_name"].startswith("North London")
     assert bench.get("/api/benchmark/trust/R01").json()["merged_into"] is None
+
+
+@pytest.fixture()
+def subs(bench, db):
+    """R00-R05 Acute - Teaching (six, enough for peers), R06-R08 Acute - Small (three, too few), rest unclassified."""
+    from app.benchmark import _cache
+    sf = db.query(SourceFile).first()
+    for i in range(12):
+        code = 11 if i < 6 else 15 if i < 9 else None
+        if code:
+            db.add(Metric(ods_code=f"R{i:02d}", source_key="nof", metric_code="nof:peer_subtype", metric_label="sub", period="Q1 2026/27",
+                          period_sort=202604, period_type="quarter", value=float(code), unit="group", source_file_id=sf.id))
+    db.commit()
+    _cache.clear()
+    return bench
+
+
+def test_group_options_and_subtype_filter(subs):
+    o = subs.get("/api/benchmark/groups").json()
+    assert {s["key"]: s["n"] for s in o["subtypes"]} == {"acute_teaching": 6, "acute_small": 3}
+    assert {g["key"]: g["n"] for g in o["groups"]}["acute"] == 12
+    v = subs.get("/api/benchmark/metric?code=rtt:pct_within_18_weeks&subtype=acute_teaching").json()
+    assert v["stats"]["n"] == 6 and {p["subtype"] for p in v["points"]} == {"acute_teaching"}
+    assert subs.get("/api/benchmark/metric?code=nof:of5200&subtype=nope").status_code == 422
+    assert "nof:peer_subtype" not in {r["metric_code"] for r in subs.get("/api/benchmark/metrics").json()}
+
+
+def test_subtype_scope_and_fallback(subs):
+    t = subs.get("/api/benchmark/trust/R02?codes=rtt:pct_within_18_weeks&scope=subtype").json()
+    m = t["metrics"][0]
+    assert t["subtype_label"] == "Acute - Teaching" and m["scope_used"] == "subtype" and m["n"] == 6 and m["rank"] == 4
+    small = subs.get("/api/benchmark/trust/R07?codes=rtt:pct_within_18_weeks&scope=subtype").json()["metrics"][0]
+    assert small["scope_used"] == "peers" and small["n"] == 12  # only three small acute trusts: falls back to type
+    plain = subs.get("/api/benchmark/trust/R10?codes=rtt:pct_within_18_weeks&scope=subtype").json()["metrics"][0]
+    assert plain["scope_used"] == "peers"  # no subtype at all
+    assert subs.get("/api/benchmark/trust/R02?scope=national").status_code == 200
+
+
+def test_trust_list_carries_type_and_subtype(subs):
+    rows = {r["ods_code"]: r for r in subs.get("/api/trusts").json()}
+    assert rows["R01"]["subtype"] == "acute_teaching" and rows["R01"]["peer_group"] == "acute" and rows["R10"]["subtype"] is None

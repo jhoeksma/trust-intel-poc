@@ -22,8 +22,8 @@ def test_load_then_unchanged_then_changed(db, monkeypatch):
     assert s["unchanged"] == 1 and s["loaded"] == 0
     _patch(monkeypatch, CSV.replace(b",2,\n", b",3,\n"))
     pipeline.run_source(db, "nof")
-    assert db.scalar(select(func.count()).select_from(Metric).where(Metric.metric_code != "nof:peer_group")) == 1  # replaced, not duplicated
-    assert db.scalar(select(Metric.value).where(Metric.metric_code != "nof:peer_group")) == 3
+    assert db.scalar(select(func.count()).select_from(Metric).where(Metric.metric_code.not_in(["nof:peer_group", "nof:peer_subtype"]))) == 1  # replaced, not duplicated
+    assert db.scalar(select(Metric.value).where(Metric.metric_code.not_in(["nof:peer_group", "nof:peer_subtype"]))) == 3
 
 
 def test_discovery_failure_is_recorded(db, monkeypatch):
@@ -90,7 +90,7 @@ def test_loader_version_bump_forces_reload(db, monkeypatch):
     db.commit()
     s = pipeline.run_source(db, "nof")
     assert s["loaded"] == 1 and s["unchanged"] == 0
-    assert db.scalar(select(func.count()).select_from(Metric).where(Metric.metric_code != "nof:peer_group")) == 1
+    assert db.scalar(select(func.count()).select_from(Metric).where(Metric.metric_code.not_in(["nof:peer_group", "nof:peer_subtype"]))) == 1
 
 
 def test_run_report_runs(db, monkeypatch):
