@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from app.config import settings
 from app.periods import Period, parse_period
 
-LOADER_VERSION = 5  # bump when loader output changes, so unchanged files are reloaded
+LOADER_VERSION = 6  # bump when loader output changes, so unchanged files are reloaded
 ODS_RE = re.compile(r"^[A-Z0-9]{3,5}$")
 UNKNOWN_PERIOD = Period("unknown", 0, "unknown")
 

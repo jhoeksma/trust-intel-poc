@@ -28,6 +28,6 @@
 | D-024 | 2026-10-20 | Serialise refreshes with a Postgres advisory lock | Overlapping deploys each ran the start-up refresh and double-loaded new files |
 | D-025 | 2026-10-20 | Strain score stays at v0 (NOF adjusted segment); blended v1 parked at Jon's request | See docs/STRAIN_SCORE.md. Revisit when Jon asks |
 | D-026 | 2026-10-20 | CQC provider-level ratings, not location-level, as the organisation rating | Matches how a trust is described ("rated Good"); the 327k location rows are a later layer |
-| D-027 | 2026-10-20 | Join CQC to ODS by explicit code, then unique normalised name, then manual override file | The file gives an ODS code for only about 30 of 200 NHS providers; name matches are flagged and unmatched ones listed, never guessed |
+| D-027 | 2026-10-20 | Join CQC to ODS by override, explicit code, Provider ID (NHS IDs are ODS codes), then unique normalised name | The code column is filled for only about 30 of 200 NHS providers; the ID is exact; name matches are flagged and unmatched ones listed, never guessed |
 | D-028 | 2026-10-20 | Store CQC ratings as 1-4 numbers with the scale in the label | The metrics table holds numbers; the UI maps back to names |
 | D-029 | 2026-10-20 | Snapshot sources keep one row per (org, metric, period) | A monthly file repeats unchanged ratings; without this every month would duplicate them |

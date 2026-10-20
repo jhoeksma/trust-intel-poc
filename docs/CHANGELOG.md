@@ -7,7 +7,8 @@
 - New `app/sources/ods.py`: standard-library streaming reader for .ods (the workbook is 27MB, 327k location rows).
 - `SourceSpec.snapshot`: a snapshot source keeps one row per (org, metric, period) across monthly files, so unchanged ratings are not duplicated.
 - Dashboard: CQC rating column; trust page shows rating names. Scripts: `review.py` (completeness and coherence checks), `probe_urls.py`, `profile_file.py`, `explore_cqc*.py` (diagnostics).
-- 47 tests.
+- Join order for CQC: hand override, the Provider ODS Code column, the Provider ID (NHS providers use their ODS code as ID, exact), then unique normalised name. Conflicts between ID and name are listed in the file profile. Snapshot month parsed from the underscored file name (it had come out as unknown). `LOADER_VERSION` 6.
+- 49 tests.
 
 ## Notes - 2026-10-20
 - Strain score scale and v0 limits documented in `docs/STRAIN_SCORE.md`; v1 parked (D-025).

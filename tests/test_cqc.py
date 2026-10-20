@@ -103,3 +103,18 @@ def test_snapshot_store_replaces_same_key(db):
     db.commit()
     rows = db.execute(select(Metric.metric_code, Metric.period, func.count()).group_by(Metric.metric_code, Metric.period)).all()
     assert all(n == 1 for _, _, n in rows)  # same rating, same publication month: one row, not two
+
+
+def test_provider_id_that_is_an_ods_code_beats_name_and_conflicts_are_reported():
+    r = run([P("RAA", "", "Alpha Renamed NHS Foundation Trust", "Overall", "Overall", "Good"),
+             P("RCC", "", "Beta NHS Trust", "Overall", "Overall", "Outstanding")])
+    by = {m["ods_code"]: m for m in r.metrics if m["metric_code"] == "cqc:overall"}
+    assert by["RAA"]["value"] == 3 and by["RAA"]["quality_flag"] is None  # exact join, not a name match
+    assert by["RCC"]["value"] == 4  # provider id wins even though the name says RBB
+    assert r.profile["matched"] == {"provider_id": 2}
+    assert "RCC" in r.profile["provider_id_vs_name_conflicts"][0]
+
+
+def test_snapshot_month_parsed_from_underscored_file_name():
+    r = run([P("RAA", "", "Alpha NHS Foundation Trust", "Maternity", "Overall", "Good", rtype="CoreService")])
+    assert {m["period"] for m in r.metrics if m["metric_code"].startswith("cqc:core")} == {"2026-10"}

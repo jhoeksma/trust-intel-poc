@@ -16,8 +16,9 @@ Ratings are stored as numbers: 1 Inadequate, 2 Requires improvement, 3 Good, 4 O
 month its rating was published, which may be years old; the snapshot month is used only
 for core-service counts.
 
-Joining to ODS codes: only about 30 of 200 NHS providers carry an ODS code in the file, so
-the rest are matched by organisation name against the organisations already held
+Joining to ODS codes: in order, a hand override, the Provider ODS Code column (only about 30 of 200
+NHS providers fill it), the Provider ID itself (NHS providers use their ODS code as ID), and finally
+normalised organisation name against the organisations already held
 (unique matches only, flagged quality_flag="name_match"). Hand fixes go in
 data/reference/cqc_overrides.csv (provider_id, ods_code, note). Unmatched NHS providers are
 listed in the file profile. Load this source after the others so the names exist.
@@ -41,6 +42,7 @@ RATING_NAME = {v: k.capitalize() for k, v in RATING.items()}
 SCALE = "1 Inadequate, 2 Requires improvement, 3 Good, 4 Outstanding"
 KEY_QUESTIONS = {"safe": "Safe", "effective": "Effective", "caring": "Caring", "responsive": "Responsive", "well-led": "Well-led"}
 EXTRA = {"use of resources": ("use_of_resources", "Use of Resources"), "combined quality rating": ("combined_quality", "Combined quality and resources rating")}
+_ODS_LIKE = re.compile(r"^[A-Z0-9]{3,5}$")  # NHS providers use their ODS code as the CQC provider ID (independents use 1-nnnnnnnn)
 _STOP = re.compile(r"\b(the|nhs|foundation|trust)\b")
 
 
@@ -103,7 +105,7 @@ def load_cqc(source_key: str, file_name: str, data: bytes, default_period: str |
         profile["notes"] = ["no 'Providers' sheet or no rows; nothing loaded"]
         result.mapper_status = "needs_review"
         return result
-    snapshot = parse_period(unquote(file_name)) or parse_period(default_period) or UNKNOWN_PERIOD
+    snapshot = parse_period(unquote(file_name).replace("_", " ")) or parse_period(default_period) or UNKNOWN_PERIOD
 
     by_prov: dict[str, list[dict]] = defaultdict(list)
     meta: dict[str, dict] = {}
@@ -119,16 +121,20 @@ def load_cqc(source_key: str, file_name: str, data: bytes, default_period: str |
             names[norm_name(nm)].append(code)
 
     method: dict[str, tuple[str, str]] = {}  # provider id -> (ods, how)
-    ambiguous, unmatched_nhs, ods_unknown = [], [], 0
+    ambiguous, unmatched_nhs, ods_unknown, conflicts = [], [], 0, []
     for pid, r in meta.items():
         is_nhs = r.get("Provider Type") == "NHS Healthcare Organisation"
         explicit = str(r.get("Provider ODS Code", "") or "").strip().upper()
+        cands = names.get(norm_name(r.get("Provider Name", "")), []) if is_nhs else []
         if pid in overrides:
             method[pid] = (overrides[pid], "override")
         elif explicit and explicit in known:
             method[pid] = (explicit, "ods_code")
+        elif _ODS_LIKE.match(pid) and pid in known:
+            method[pid] = (pid, "provider_id")
+            if cands and pid not in cands:
+                conflicts.append(f"{pid} {r.get('Provider Name')}: name suggests {','.join(cands)}")
         elif is_nhs:
-            cands = names.get(norm_name(r.get("Provider Name", "")), [])
             if len(cands) == 1:
                 method[pid] = (cands[0], "name_match")
             elif len(cands) > 1:
@@ -149,7 +155,7 @@ def load_cqc(source_key: str, file_name: str, data: bytes, default_period: str |
 
     overall_dist = Counter()
     for pid, (ods, how) in method.items():
-        flag = "name_match" if how == "name_match" else None
+        flag = "name_match" if how == "name_match" else None  # provider_id and ods_code joins are exact
         prov = [r for r in by_prov[pid] if r.get("Report Type") == "Provider"]
         grp = lambda g, d: [r for r in prov if r.get("Service / Population Group") == g and r.get("Domain") == d]
 
@@ -197,7 +203,7 @@ def load_cqc(source_key: str, file_name: str, data: bytes, default_period: str |
         "matched": dict(Counter(h for _, h in method.values())), "orgs": len(result.orgs), "metrics_loaded": len(result.metrics),
         "overall_ratings": dict(overall_dist), "snapshot": snapshot.label,
         "unmatched_nhs_providers": unmatched_nhs[:80], "unmatched_nhs_count": len(unmatched_nhs),
-        "ambiguous_names": ambiguous[:20], "providers_with_ods_not_in_our_orgs": ods_unknown,
+        "ambiguous_names": ambiguous[:20], "provider_id_vs_name_conflicts": conflicts[:40], "providers_with_ods_not_in_our_orgs": ods_unknown,
         "match_list": {pid: f"{o} ({h})" for pid, (o, h) in list(method.items())[:400]},
     })
     result.mapper_status = "ok" if result.metrics else "needs_review"
