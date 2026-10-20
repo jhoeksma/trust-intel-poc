@@ -30,6 +30,25 @@ class SourceSpec:
     note: str = ""
 
 
+_RTT_BASE = "https://www.england.nhs.uk/statistics/wp-content/uploads/sites/2/"
+# Monthly Full CSV zips, September 2024 to July 2026 (August 2026 is the committed local seed). The hashed names cannot
+# be guessed: they were read from the RTT pages for 2024-25, 2025-26 and 2026-27. Re-read them when a month is revised.
+RTT_HISTORY = tuple(_RTT_BASE + f for f in (
+    "2025/02/Full-CSV-data-file-Sep24-ZIP-4M-revised.zip", "2025/07/Full-CSV-data-file-Oct24-ZIP-4M-revised.zip",
+    "2025/07/Full-CSV-data-file-Nov24-ZIP-4M-revised.zip", "2025/07/Full-CSV-data-file-Dec24-ZIP-4M-revised.zip",
+    "2025/07/Full-CSV-data-file-Jan25-ZIP-4M-revised.zip", "2025/07/Full-CSV-data-file-Feb25-ZIP-4M-revised.zip",
+    "2025/07/Full-CSV-data-file-Mar25-ZIP-4M-revised.zip", "2026/02/Full-CSV-data-file-Apr25-ZIP-4M-revised.zip",
+    "2026/02/Full-CSV-data-file-May25-ZIP-4M-revised.zip", "2026/02/Full-CSV-data-file-Jun25-ZIP-4M-revised.zip",
+    "2026/02/Full-CSV-data-file-Jul25-ZIP-4M-revised-2.zip", "2026/02/Full-CSV-data-file-Aug25-ZIP-4M-revised-2.zip",
+    "2026/02/Full-CSV-data-file-Sep25-ZIP-4M-revised.zip", "2025/12/Full-CSV-data-file-Oct25-ZIP-4M-SrRW6y.zip",
+    "2026/01/Full-CSV-data-file-Nov25-ZIP-4M-1Xmjkk.zip", "2026/07/Full-CSV-data-file-Dec25-ZIP-3M-revised.zip",
+    "2026/03/Full-CSV-data-file-Jan26-ZIP-4M-WL5BiP.zip", "2026/04/Full-CSV-data-file-Feb26-ZIP-4M-9j03fJT.zip",
+    "2026/07/Full-CSV-data-file-Mar26-ZIP-3M-revised.zip", "2026/06/Full-CSV-data-file-Apr26-ZIP-3M-X7gGnn.zip",
+    "2026/07/Full-CSV-data-file-May26-ZIP-3M-3jBgba.zip", "2026/08/Full-CSV-data-file-Jun26-ZIP-3M-6jPlxd.zip",
+    "2026/09/Full-CSV-data-file-Jul26-ZIP-4M-97ylx5.zip",
+))
+
+
 SOURCES: dict[str, SourceSpec] = {
     s.key: s
     for s in [
@@ -62,11 +81,11 @@ SOURCES: dict[str, SourceSpec] = {
             cadence="Monthly",
             index_urls=("https://www.england.nhs.uk/statistics/statistical-work-areas/rtt-waiting-times/rtt-data-2026-27/",),
             link_text_re=r"(?i)full csv data file",
-            seed_urls=("file://data/manual/RTT%20-%20Aug%202026%20-%20Full%20CSV%20data%20file.zip",),
+            seed_urls=("file://data/manual/RTT%20-%20Aug%202026%20-%20Full%20CSV%20data%20file.zip",) + RTT_HISTORY,
             kind="zip_csv",
             loader="rtt",
             note="Aggregated by us from provider by specialty by commissioner rows; see DATA_DICTIONARY.md. "
-            "August 2026 full extract supplied by Jon (20 Oct 2026) and committed as a seed (public, OGL, 3.4MB zip); one month only, so no trend until earlier months are added.",
+            "August 2026 full extract supplied by Jon (20 Oct 2026) and committed as a seed (public, OGL, 3.4MB zip). The 23 months before it (September 2024 to July 2026) are seeded by URL, read from NHS England's RTT pages on 20 Oct 2026 (revised files where NHS England published one); Railway downloads them, nothing is committed.",
         ),
         SourceSpec(
             key="workforce",

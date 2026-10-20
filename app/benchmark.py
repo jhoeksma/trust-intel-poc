@@ -91,16 +91,16 @@ def catalogue(db: Session) -> list[dict]:
         return hit[1]
     rows = db.execute(
         select(Metric.metric_code, Metric.source_key, Metric.unit, func.max(Metric.metric_label),
-               func.count(func.distinct(Metric.ods_code)), func.max(Metric.period_sort))
+               func.count(func.distinct(Metric.ods_code)), func.max(Metric.period_sort), func.count(func.distinct(Metric.period_sort)))
         .where(Metric.value.is_not(None)).group_by(Metric.metric_code, Metric.source_key, Metric.unit)
     ).all()
     out = []
-    for code, source, unit, label, n, ps in rows:
+    for code, source, unit, label, n, ps, nper in rows:
         if n < MIN_ORGS or _companion(code):
             continue
         out.append({"metric_code": code, "label": label or code, "source": source,
                     "source_label": SOURCE_LABELS.get(source, source), "unit": unit, "orgs": n,
-                    "latest_period_sort": ps, "polarity": polarity(code), "core": False, "core_rank": None})
+                    "latest_period_sort": ps, "periods": nper, "polarity": polarity(code), "core": False, "core_rank": None})
     out.sort(key=lambda r: (r["source"], r["metric_code"]))
     by_code = {r["metric_code"]: r for r in out}
     for rank, want in enumerate(CORE_FIELDS):
@@ -236,6 +236,56 @@ def metric_view(db: Session, code: str, group: str | None = None, subtype: str |
             "points": pts, "ranking": "best first" if pol else "highest first"}
 
 
+def choose_pool(national: dict, ods: str, groups: dict, subs: dict, scope: str):
+    """(kind, label, {ods: value}): the narrowest requested group with at least MIN_PEERS values that includes `ods`."""
+    mine_group, mine_sub = group_of(groups, ods), subs.get(ods)
+    pools = []
+    if scope == "subtype" and mine_sub:
+        pools.append(("subtype", SUBTYPE_LABELS[mine_sub], {o: v for o, v in national.items() if subs.get(o) == mine_sub}))
+    if scope in ("subtype", "peers") and mine_group != "other":
+        pools.append(("peers", GROUP_LABELS[mine_group], {o: v for o, v in national.items() if group_of(groups, o) == mine_group}))
+    for kind, lbl, p in pools:
+        if len(p) >= MIN_PEERS and ods in p:
+            return kind, lbl, p
+    return "national", "all organisations", national
+
+
+def trust_trend(db: Session, ods: str, code: str, scope: str = "subtype", months: int = 24) -> dict | None:
+    """One organisation's value by period against the median and middle half of its comparison group in that period.
+
+    The group is chosen once, from latest values (as in trust_benchmark), then its members' values are read
+    period by period; rank is among the group members that have a value in that period.
+    """
+    meta = next((r for r in catalogue(db) if r["metric_code"] == code), None)
+    if meta is None:
+        return None
+    by_period: dict[int, dict[str, float]] = {}
+    labels: dict[int, str] = {}
+    latest: dict[str, tuple[int, float]] = {}
+    for o, per, ps, v in db.execute(select(Metric.ods_code, Metric.period, Metric.period_sort, Metric.value)
+                                    .where(Metric.metric_code == code, Metric.value.is_not(None))):
+        if math.isnan(v):
+            continue
+        by_period.setdefault(ps, {})[o] = float(v)
+        labels[ps] = per
+        if o not in latest or ps > latest[o][0]:
+            latest[o] = (ps, float(v))
+    used, label, pool = choose_pool({o: v for o, (ps, v) in latest.items()}, ods, peer_groups(db), subtypes(db), scope)
+    points = []
+    for ps in sorted(by_period)[-months:]:
+        here = by_period[ps]
+        vals = [here[o] for o in pool if o in here]
+        mine = here.get(ods)
+        pt = {"period": labels[ps], "period_sort": ps, "value": mine, "n": len(vals)}
+        if vals:
+            st = stats(vals)
+            pt.update({"median": st["median"], "p25": st["p25"], "p75": st["p75"]})
+            if mine is not None:
+                pt.update(position(vals if ods in pool else vals + [mine], mine, meta["polarity"]))
+        points.append(pt)
+    return {**meta, "ods_code": ods, "scope": scope, "scope_used": used, "peer_label": label, "points": points}
+
+
 def trust_benchmark(db: Session, ods: str, codes: list[str], scope: str = "subtype") -> dict:
     """For each metric: this organisation's value and where it sits among its subtype, trust type or everyone.
 
@@ -252,16 +302,7 @@ def trust_benchmark(db: Session, ods: str, codes: list[str], scope: str = "subty
             continue
         vals = latest_values(db, code)
         national = {o: v["value"] for o, v in vals.items()}
-        pools = []
-        if scope == "subtype" and mine_sub:
-            pools.append(("subtype", SUBTYPE_LABELS[mine_sub], {o: v for o, v in national.items() if subs.get(o) == mine_sub}))
-        if scope in ("subtype", "peers") and mine_group != "other":
-            pools.append(("peers", GROUP_LABELS[mine_group], {o: v for o, v in national.items() if group_of(groups, o) == mine_group}))
-        used, label, pool = "national", "all organisations", national
-        for kind, lbl, p in pools:
-            if len(p) >= MIN_PEERS and ods in p:
-                used, label, pool = kind, lbl, p
-                break
+        used, label, pool = choose_pool(national, ods, groups, subs, scope)
         row = {**meta, "scope_used": used, "peer_label": label, "peer_group": mine_group if used != "national" else None,
                "value": None, "period": None, "stats": stats(list(pool.values())), "national_median": stats(list(national.values())).get("median")}
         if ods in vals:

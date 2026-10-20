@@ -307,11 +307,11 @@ function refreshBench() {
       }).join('') + '<span class="mute">of ' + total + ' fields with a known good direction</span></div>';
     }
     h += '</div><div class="card" style="padding:0">';
-    b.metrics.forEach(function (m) { h += benchRow(m); });
+    b.metrics.forEach(function (m, i) { h += benchRow(m, i); });
     box.innerHTML = h + '</div>';
   }).catch(function (e) { box.innerHTML = '<div class="card dn">' + esc(e.message) + '</div>'; });
 }
-function benchRow(m) {
+function benchRow(m, i) {
   var pos = m.value == null
     ? '<span class="mute">No value for this trust</span>'
     : '<b>' + esc(fmt(m.value, m.unit)) + '</b> <span class="mute">' + esc(m.period) + '</span>';
@@ -323,7 +323,64 @@ function benchRow(m) {
   return '<div class="mrow"><div class="ml"><div>' + esc(m.label) + '</div><div class="mute" style="font-size:12px">' + esc(m.source_label) + ' · ' + esc(dirText(m.polarity)) +
     (m.scope_used === 'national' && state.scope !== 'national' ? ' · compared with everyone (too few peers)' : m.scope_used === 'peers' && state.scope === 'subtype' ? ' · compared with the trust type (too few in the subtype)' : '') +
     ' · <a onclick="go(\'explorer\',\'' + esc(m.metric_code) + '\')">explore</a></div></div>' +
-    '<div class="mv">' + pos + '<div style="margin-top:4px">' + tag + '</div></div><div class="mk">' + rk + vs + '</div><div class="mc">' + rangeBar(m) + '</div></div>';
+    '<div class="mv">' + pos + '<div style="margin-top:4px">' + tag + '</div></div><div class="mk">' + rk + vs + '</div><div class="mc">' + rangeBar(m) +
+    (m.periods >= 3 && m.value != null ? '<div><a onclick="toggleTrend(' + i + ',\'' + esc(m.metric_code) + '\')">▸ trend over ' + m.periods + ' periods</a></div>' : '') +
+    '</div><div class="mt" id="tr' + i + '" style="grid-column:1/-1;display:none"></div></div>';
+}
+
+/* One trust's value by period against its comparison group's median and middle half. */
+function toggleTrend(i, code) {
+  var box = document.getElementById('tr' + i);
+  if (box.style.display === 'block') { box.style.display = 'none'; return; }
+  box.style.display = 'block'; box.innerHTML = '<span class="mute">Loading…</span>';
+  api('/api/benchmark/trust/' + enc(state.current) + '/trend?code=' + enc(code) + '&scope=' + state.scope).then(function (t) {
+    box.innerHTML = trendChart(t);
+  }).catch(function (e) { box.innerHTML = '<span class="dn">' + esc(e.message) + '</span>'; });
+}
+function trendChart(t) {
+  var pts = t.points, n = pts.length, W = 900, H = 230, L = 56, R = 16, T = 14, B = 34;
+  var ys = [];
+  pts.forEach(function (p) { [p.value, p.p25, p.p75, p.median].forEach(function (v) { if (v != null) { ys.push(v); } }); });
+  if (n < 2 || !ys.length) { return '<span class="mute">Not enough periods to draw a trend.</span>'; }
+  var lo = Math.min.apply(null, ys), hi = Math.max.apply(null, ys), padY = (hi - lo) * 0.08 || 1;
+  lo -= padY; hi += padY;
+  var x = function (i) { return L + (W - L - R) * i / (n - 1); };
+  var y = function (v) { return T + (H - T - B) * (1 - (v - lo) / (hi - lo)); };
+  var h = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(t.label) + ' over time">';
+  [0, 0.5, 1].forEach(function (f) {
+    var v = lo + (hi - lo) * f;
+    h += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="' + (L - 6) + '" y="' + (y(v) + 4) + '" class="ax" text-anchor="end">' + esc(fmt(v, t.unit)) + '</text>';
+  });
+  var up = [], dn = [];
+  pts.forEach(function (p, i) { if (p.p25 != null) { up.push(x(i) + ',' + y(p.p75)); dn.unshift(x(i) + ',' + y(p.p25)); } });
+  if (up.length > 1) { h += '<polygon points="' + up.concat(dn).join(' ') + '" fill="var(--band)" opacity=".7"/>'; }
+  var med = '', line = '';
+  pts.forEach(function (p, i) {
+    if (p.median != null) { med += (med ? 'L' : 'M') + x(i) + ',' + y(p.median); }
+  });
+  h += '<path d="' + med + '" fill="none" stroke="var(--mute)" stroke-width="2" stroke-dasharray="5 4"/>';
+  var started = false;
+  pts.forEach(function (p, i) {
+    if (p.value == null) { started = false; return; }
+    line += (started ? 'L' : 'M') + x(i) + ',' + y(p.value); started = true;
+  });
+  h += '<path d="' + line + '" fill="none" stroke="var(--accent)" stroke-width="3"/>';
+  pts.forEach(function (p, i) {
+    if (p.value == null) { return; }
+    h += '<circle cx="' + x(i) + '" cy="' + y(p.value) + '" r="4" fill="' + (QCOL[p.quartile] || 'var(--accent)') + '" stroke="var(--card)" stroke-width="2"><title>' +
+      esc(p.period + ': ' + fmt(p.value, t.unit) + (p.rank ? ' · rank ' + p.rank + ' of ' + p.n : '') + (p.median != null ? ' · group median ' + fmt(p.median, t.unit) : '')) + '</title></circle>';
+  });
+  [0, Math.floor((n - 1) / 2), n - 1].forEach(function (i) {
+    h += '<text x="' + x(i) + '" y="' + (H - 10) + '" class="ax" text-anchor="' + (i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle') + '">' + esc(pts[i].period) + '</text>';
+  });
+  h += '</svg>';
+  var first = pts.filter(function (p) { return p.value != null; })[0], last = pts.filter(function (p) { return p.value != null; }).slice(-1)[0];
+  var sum = '';
+  if (first && last && first !== last) {
+    sum = esc(fmt(first.value, t.unit)) + ' (' + esc(first.period) + ') to ' + esc(fmt(last.value, t.unit)) + ' (' + esc(last.period) + ')' +
+      (first.rank && last.rank ? ' · rank ' + first.rank + ' of ' + first.n + ' to ' + last.rank + ' of ' + last.n : '');
+  }
+  return '<div class="mute" style="font-size:12px;margin-bottom:2px">Solid line: this trust. Dashed line and band: median and middle half of ' + esc(t.peer_label) + '. ' + sum + '</div>' + h;
 }
 
 /* ---------- metric explorer ---------- */

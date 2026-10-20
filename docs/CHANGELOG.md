@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0 - 2026-10-20
+
+- RTT history: the 23 monthly Full CSV extracts from September 2024 to July 2026 are seeded by URL (`RTT_HISTORY` in the source registry), giving 24 months with August 2026. The addresses carry hashed names, so they were read from NHS England's RTT pages (2024-25, 2025-26, 2026-27) through Chrome; revised files are used where NHS England published one. Railway downloads them at load time; none are committed.
+- Trend: `GET /api/benchmark/trust/{ods}/trend?code=&scope=&months=` returns a trust's value by period with the median, middle half and rank of its comparison group in each period. The trust dashboard shows "trend over N periods" on any measure with three or more periods, as a line against the group's median band. Metric catalogue entries now carry `periods`.
+- Tests: 62 passing.
+
 ## 0.8.0 - 2026-10-20
 
 - NOF trust subtype (Acute - Teaching, Large, Medium, Multi-Service, Small, Specialist; Community; Mental Health and Learning Disability; Care Trust; Ambulance) loaded as `nof:peer_subtype` from each file's Trust_subtype. LOADER_VERSION 8 forces the NOF files to reload.

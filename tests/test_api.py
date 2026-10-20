@@ -227,3 +227,22 @@ def test_subtype_scope_and_fallback(subs):
 def test_trust_list_carries_type_and_subtype(subs):
     rows = {r["ods_code"]: r for r in subs.get("/api/trusts").json()}
     assert rows["R01"]["subtype"] == "acute_teaching" and rows["R01"]["peer_group"] == "acute" and rows["R10"]["subtype"] is None
+
+
+def test_trend_series_against_group(bench, db):
+    from app.benchmark import _cache
+    sf = db.query(SourceFile).first()
+    for i in range(12):  # an earlier month: everyone five points worse
+        db.add(Metric(ods_code=f"R{i:02d}", source_key="rtt", metric_code="rtt:pct_within_18_weeks", metric_label="18w", period="2026-07",
+                      period_sort=202607, period_type="month", value=45.0 + i, unit="pct", source_file_id=sf.id))
+    db.commit()
+    _cache.clear()
+    t = bench.get("/api/benchmark/trust/R11/trend?code=rtt:pct_within_18_weeks&scope=national").json()
+    assert [p["period"] for p in t["points"]] == ["2026-07", "2026-08"] and t["periods"] == 2
+    jul, aug = t["points"]
+    assert jul["value"] == 56.0 and aug["value"] == 61.0 and jul["rank"] == 1 and aug["n"] == 12
+    assert jul["median"] == 50.5 and aug["median"] == 55.5 and t["scope_used"] == "national"
+    assert bench.get("/api/benchmark/trust/R11/trend?code=nope").status_code == 404
+    assert bench.get("/api/benchmark/trust/R11/trend?code=rtt:pct_within_18_weeks&scope=x").status_code == 422
+    cat = {r["metric_code"]: r for r in bench.get("/api/benchmark/metrics").json()}
+    assert cat["rtt:pct_within_18_weeks"]["periods"] == 2 and cat["nof:of5200"]["periods"] == 1

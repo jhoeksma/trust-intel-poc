@@ -125,6 +125,20 @@ def benchmark_trust(ods: str, codes: str = "", scope: str = "subtype", db: Sessi
     return benchmark.trust_benchmark(db, ods, wanted, scope)
 
 
+@app.get("/api/benchmark/trust/{ods}/trend", dependencies=[Depends(require_auth)])
+def benchmark_trend(ods: str, code: str, scope: str = "subtype", months: int = 24, db: Session = Depends(get_db)):
+    """One measure over time for one organisation, against the median and middle half of its comparison group."""
+    if scope not in ("subtype", "peers", "national"):
+        raise HTTPException(422, "scope must be subtype, peers or national")
+    ods = ods.upper()
+    if db.get(Org, ods) is None:
+        raise HTTPException(404, "Unknown organisation code")
+    out = benchmark.trust_trend(db, ods, code, scope, max(2, min(months, 60)))
+    if out is None:
+        raise HTTPException(404, "Unknown or too sparse metric")
+    return out
+
+
 @app.get("/api/sources", dependencies=[Depends(require_auth)])
 def sources(db: Session = Depends(get_db)):
     files = db.execute(select(SourceFile).order_by(desc(SourceFile.retrieved_at)).limit(200)).scalars().all()
