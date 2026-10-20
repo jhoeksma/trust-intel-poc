@@ -42,8 +42,17 @@ SOURCES: dict[str, SourceSpec] = {
                 "https://www.england.nhs.uk/publication/nhs-oversight-framework-nhs-trust-performance-league-tables-process-and-results/",
             ),
             link_href_re=r"(?i)oversight-framework.*(trust-data|league-table).*\.csv",
-            note="Long format: one row per trust, quarter and metric. Metric OF5000 is the adjusted segment. "
-            "The 2026/27 framework changed method; scores before and after are not comparable.",
+            seed_urls=tuple(
+                "file://data/manual/NOF%20-%20Q1%202026_27%20-%20" + n.replace(" ", "%20") + ".csv.gz"
+                for n in ("Trust data - Acute", "Trust data - Ambulance", "Trust data - Mental health and community",
+                          "League table - Acute", "League table - Ambulance", "League table - Mental health and community")
+            ),
+            loader="nof",
+            default_period="Q1 2026/27",
+            note="Q1 2026/27 supplied by Jon as Numbers files (20 Oct 2026), converted to CSV and committed (public, OGL). "
+            "Trust data is long format (Metric_ID, Value, rank); league tables add rank and likely ranges. "
+            "Adjusted segment is OF5200. Override with SEED_URLS_NOF once official CSV links are known. "
+            "The 2026/27 framework changed method; not comparable with 2025/26.",
         ),
         SourceSpec(
             key="rtt",

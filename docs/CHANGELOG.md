@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 - 2026-10-20
+- New dedicated NOF loader `app/sources/nof.py` for the Q1 2026/27 NHS Oversight Framework files supplied by Jon (Numbers, converted to CSV and committed under `data/manual/`): trust data for acute (134 trusts), ambulance (10) and mental health and community (58), plus the three league tables. 202 trusts, 177 metric codes.
+- Trust data loads every metric with its unit and peer rank (`nof:<metric>` and `nof:<metric>:rank`). League tables add `nof:league_rank` and the likely ranges for score and rank (`league_score_low/high`, `league_rank_low/high`). Segment, score and deficit flag in the league tables are identical to OF5200, OF5202 and OF5204 for all 202 trusts, so are not reloaded.
+- Strain score v0 now reads the adjusted segment `nof:of5200` explicitly. The earlier hint (`of5000`, any label containing "segment") was wrong and could have picked the unadjusted or a domain segment.
+- Every row takes the file's Quarter as its period (Reporting_date varies per metric); "Q1 26/27" is normalised to "Q1 2026/27". Float noise removed (1.7000000000000002 becomes 1.7). `LOADER_VERSION` 3.
+- 38 tests.
+
 ## 0.3.1 - 2026-10-20
 - Refresh prints a run report (coverage per source, join rates, headline checks, duplicates, unknown periods, recent failures) to the logs.
 - Profile-only files (no organisation column) now carry a loader version, so they are no longer reloaded every run.

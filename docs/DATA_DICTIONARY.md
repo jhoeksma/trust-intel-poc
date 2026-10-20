@@ -12,6 +12,9 @@
 ## ERIC site metrics (`eric_site:*`)
 Raw questions keep ERIC codes in lower case (`eric_site:s03_10` = cost to eradicate moderate risk backlog, £), summed over a trust's sites. Percentages are floor-area weighted. Derived: `backlog_total`, `backlog_high_significant`, `backlog_high_significant_share`, `backlog_per_sqm`, `energy_cost_total`, `energy_cost_per_sqm`, `energy_kwh_total`, `energy_kwh_per_sqm`, `estates_cost_total` (S25 lines 05 to 19 excluding S25_11 and S25_22; check against the ERIC guidance before publishing), `unsuitable_share`, `empty_share`, `sites_total`, `sites:<type>`. Text and select columns are skipped and listed in the file profile.
 
+## NOF metrics (`nof:*`)
+`nof:of0xxx` underlying measures (unit in `unit`); `nof:of2xxx` metric scores; `nof:of4200..4209` domain scores and `of4300..4309` domain segments; `nof:of5200` adjusted segment (1 best, 4 worst); `of5203` unadjusted segment; `of5202` average metric score; `of5204` financial override flag. A `:rank` suffix is the trust's rank among its trust type for that metric (rank direction follows the publisher: check before comparing across metrics). `nof:league_rank`, `league_score_low/high` and `league_rank_low/high` come from the league tables. All periods are the publication quarter; the metric's own reporting window is in the label.
+
 ## Derived metrics
 | Code | Definition |
 |---|---|
@@ -20,4 +23,4 @@ Raw questions keep ERIC codes in lower case (`eric_site:s03_10` = cost to eradic
 | rtt:pct_within_18_weeks | (total - over 18) / total x 100 |
 
 ## Cautions
-HES counts episodes, not patients. NOF 2026/27 is not comparable with 2025/26. Organisation mergers change ODS codes; `current_code` is reserved for successor mapping (not yet populated).
+HES counts episodes, not patients. NOF 2026/27 is not comparable with 2025/26. Organisation mergers change ODS codes; `current_code` holds the successor code where known (see `data/reference/code_successors.csv`).

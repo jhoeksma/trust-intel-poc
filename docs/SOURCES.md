@@ -4,7 +4,7 @@ All public, Open Government Licence v3.0 unless a publication page says otherwis
 
 | Key | Dataset | Owner | Cadence | Loader | Notes |
 |---|---|---|---|---|---|
-| nof | NHS Oversight Framework trust data and league tables | NHS England | Quarterly | generic (long) | Metric OF5000 = adjusted segment. 2026/27 framework changed to threshold-based segments; not comparable with 2025/26. |
+| nof | NHS Oversight Framework trust data and league tables, Q1 2026/27 | NHS England | Quarterly | nof | Committed files (file:// seeds, from Jon's Numbers exports); override with SEED_URLS_NOF. OF5200 = adjusted segment, OF5203 unadjusted, OF5202 average score, OF5204 financial override. 2026/27 framework changed method; not comparable with 2025/26. Covers 202 trusts (134 acute, 10 ambulance, 58 mental health and community). |
 | rtt | Referral to treatment waiting times, full CSV | NHS England | Monthly | rtt | Incomplete pathways (Part_2), all specialties (C_999), summed across commissioners. |
 | workforce | NHS Workforce Statistics, trusts and core organisations CSVs | NHS England | Monthly | generic | Zip of many CSVs; each with an organisation code is loaded. |
 | eric | Estates Returns Information Collection, trust data | NHS England | Annual | generic (wide) | 2024/25 published October 2025. Some fields flagged unreliable by publisher. |

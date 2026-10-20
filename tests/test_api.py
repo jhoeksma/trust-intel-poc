@@ -18,9 +18,9 @@ def client(db):
         return Metric(ods_code=org, source_key=src, metric_code=code, metric_label=label, period=period,
                       period_sort=sort, period_type="quarter", value=val, source_file_id=sf.id)
     db.add_all([
-        m("RXX", "nof:of5000", "Adjusted segment", "Q1 2026/27", 202604, 2),
-        m("RXX", "nof:of5000", "Adjusted segment", "Q4 2025/26", 202601, 3),
-        m("RYY", "nof:of5000", "Adjusted segment", "Q1 2026/27", 202604, 4),
+        m("RXX", "nof:of5200", "Adjusted segment", "Q1 2026/27", 202604, 2),
+        m("RXX", "nof:of5200", "Adjusted segment", "Q4 2025/26", 202601, 3),
+        m("RYY", "nof:of5200", "Adjusted segment", "Q1 2026/27", 202604, 4),
         m("RXX", "rtt:pct_within_18_weeks", "RTT within 18w", "2026-04", 202604, 61.5, "rtt"),
     ])
     db.commit()
@@ -39,7 +39,7 @@ def test_trust_list_has_strain(client):
 
 def test_scorecard_latest_and_previous(client):
     card = client.get("/api/trusts/rxx").json()
-    seg = next(x for x in card["metrics"] if x["metric_code"] == "nof:of5000")
+    seg = next(x for x in card["metrics"] if x["metric_code"] == "nof:of5200")
     assert seg["value"] == 2 and seg["previous_value"] == 3
     assert card["strain"]["score"] == 2
 
@@ -50,7 +50,7 @@ def test_unknown_trust_404(client):
 
 def test_compare(client):
     c = client.get("/api/compare?codes=RXX,RYY").json()
-    row = next(r for r in c["rows"] if r["metric_code"] == "nof:of5000")
+    row = next(r for r in c["rows"] if r["metric_code"] == "nof:of5200")
     assert row["values"]["RXX"]["value"] == 2 and row["values"]["RYY"]["value"] == 4
 
 

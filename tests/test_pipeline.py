@@ -4,7 +4,8 @@ from app import pipeline
 from app.models import Metric, SourceFile
 from app.sources.discover import DiscoveredFile, DiscoveryResult
 
-CSV = b"Org Code,Org Name,Period,Metric ID,Metric Name,Metric Value\nRXX,Alpha,Q1 2026/27,OF5000,Segment,2\n"
+CSV = (b"Quarter,Trust_type,Trust_code,Trust_name,Metric_ID,Metric_description,Units,Value,Rank\n"
+       b"Q1 2026/27,Acute trust,RXX,Alpha,OF5200,Adjusted segment,segment,2,\n")
 
 
 def _patch(monkeypatch, payload):
@@ -19,7 +20,7 @@ def test_load_then_unchanged_then_changed(db, monkeypatch):
     assert s["loaded"] == 1
     s = pipeline.run_source(db, "nof")
     assert s["unchanged"] == 1 and s["loaded"] == 0
-    _patch(monkeypatch, CSV.replace(b",2\n", b",3\n"))
+    _patch(monkeypatch, CSV.replace(b",2,\n", b",3,\n"))
     pipeline.run_source(db, "nof")
     assert db.scalar(select(func.count()).select_from(Metric)) == 1  # replaced, not duplicated
     assert db.scalar(select(Metric.value)) == 3

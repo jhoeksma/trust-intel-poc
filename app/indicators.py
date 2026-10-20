@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Metric, Org, TrustSystem
 
-SEGMENT_HINTS = ("of5000", "segment")
+SEGMENT_CODE = "nof:of5200"  # NOF "Adjusted segment" (OF5200); OF5203 is the unadjusted one
 
 
 def latest_by_metric(db: Session, ods: str) -> list[dict]:
@@ -39,13 +39,9 @@ def strain_from_metrics(metrics: list[dict]) -> dict:
     """Return {score, label, inputs, basis}. score is None when nothing usable exists."""
     seg = None
     for m in metrics:
-        if m["source"] != "nof":
-            continue
-        text = (m["metric_code"] + " " + (m["label"] or "")).lower()
-        if any(h in text for h in SEGMENT_HINTS) and not m["metric_code"].endswith(":score"):
-            if m["value"] is not None and 1 <= m["value"] <= 5:
-                seg = m
-                break
+        if m["metric_code"] == SEGMENT_CODE and m["value"] is not None and 1 <= m["value"] <= 5:
+            seg = m
+            break
     if seg is None:
         return {"score": None, "label": "No data", "inputs": [], "basis": "NOF segment not found"}
     score = int(round(seg["value"]))
@@ -71,14 +67,12 @@ def trust_list(db: Session) -> list[dict]:
     for m in db.execute(select(Metric).join(sub, and_(
             Metric.ods_code == sub.c.ods_code, Metric.metric_code == sub.c.metric_code, Metric.period_sort == sub.c.ps))).scalars():
         latest[(m.ods_code, m.metric_code)] = m.value
-    seg_rows = db.execute(select(Metric).where(Metric.source_key == "nof", Metric.value.is_not(None))
+    seg_rows = db.execute(select(Metric).where(Metric.metric_code == SEGMENT_CODE, Metric.value.is_not(None))
                           .order_by(Metric.period_sort.desc())).scalars().all()
     segs: dict[str, dict] = {}
-    for m in seg_rows:
-        text = (m.metric_code + " " + (m.metric_label or "")).lower()
-        if m.ods_code not in segs and any(h in text for h in SEGMENT_HINTS) and not m.metric_code.endswith(":score"):
-            segs[m.ods_code] = {"metric_code": m.metric_code, "label": m.metric_label, "source": "nof",
-                                "value": m.value, "period": m.period}
+    for m in seg_rows:  # newest first, so the first seen per trust is the latest
+        segs.setdefault(m.ods_code, {"metric_code": m.metric_code, "label": m.metric_label, "source": "nof",
+                                     "value": m.value, "period": m.period})
     suppliers = {}
     for ods, sup in db.execute(select(TrustSystem.ods_code, TrustSystem.supplier)):
         suppliers.setdefault(ods, set()).add(sup)

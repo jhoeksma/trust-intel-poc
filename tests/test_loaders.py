@@ -7,14 +7,14 @@ def csv(*lines):
 
 def test_long_format_nof():
     data = csv("Org Code,Org Name,Period,Metric ID,Metric Name,Metric Value",
-               "RXX,Alpha Trust,Q1 2026/27,OF5000,Segment,2",
-               "RXX,Alpha Trust,Q4 2025/26,OF5000,Segment,3",
-               "RYY,Beta Trust,Q1 2026/27,OF5000,Segment,4")
+               "RXX,Alpha Trust,Q1 2026/27,OF5200,Segment,2",
+               "RXX,Alpha Trust,Q4 2025/26,OF5200,Segment,3",
+               "RYY,Beta Trust,Q1 2026/27,OF5200,Segment,4")
     r = load_generic("nof", "trust-data.csv", data)
     assert r.profile["shape"] == "long"
     assert len(r.metrics) == 3 and set(r.orgs) == {"RXX", "RYY"}
     assert {m["period"] for m in r.metrics} == {"Q1 2026/27", "Q4 2025/26"}
-    assert r.metrics[0]["metric_code"] == "nof:of5000"
+    assert r.metrics[0]["metric_code"] == "nof:of5200"
 
 
 def test_wide_format_with_suppression_markers():
@@ -89,3 +89,49 @@ def test_long_file_counts_suppressed_values():
     r = load_generic("hes", "hosp-epis-stat-admi-pla-2024-25.csv", data)
     assert r.profile["suppressed_values"] == 1 and len(r.metrics) == 2
     assert "[Summary]" in r.metrics[0]["metric_label"]
+
+
+# ---- NOF (trust data and league table)
+NOF_TD = ("Quarter,Region,Trust_type,Trust_subtype,Trust_code,Trust_name,Domain,Sub-domain,Metric_ID,Metric_description,"
+          "Reporting_date,Units,Value,Median_value,Lower_quartile,Upper_quartile,Rank\n"
+          "Q1 2026/27,London,Acute trust,Acute - Large,RXX,Alpha NHS Trust,Summary,Summary,OF5200,Adjusted segment,Q1 26/27,segment,3,2,2,3,40\n"
+          "Q1 2026/27,London,Acute trust,Acute - Large,RXX,Alpha NHS Trust,Summary,Summary,OF5202,Average metric score,Q1 26/27,score,2.7000000000000002,2.5,2,3,\n"
+          "Q1 2026/27,London,Acute trust,Acute - Large,RXX,Alpha NHS Trust,People,People,OF0084,Staff\xa0engagement,2025,out of 10,6.8,7,6,7.5,12\n")
+NOF_LT = ("Quarter,Region,Trust_type,Trust_subtype,Trust_code,Trust_name,Average_score,Likely_range_of_average_score,Segment,"
+          "Trust_in_financial_deficit,Rank,Likely_range_of_rank\n"
+          "Q1 26/27,London,Acute trust,Acute - Large,RXX,Alpha NHS Trust,2.7,2.4 to 3.1,3,Yes,40,31 to 52\n")
+
+
+def test_nof_trust_data():
+    from app.sources.nof import load_nof
+    r = load_nof("nof", "NOF - Q1 2026_27 - Trust data - Acute.csv.gz", NOF_TD.encode())
+    by = {m["metric_code"]: m for m in r.metrics}
+    assert by["nof:of5200"]["value"] == 3 and by["nof:of5200"]["period"] == "Q1 2026/27"
+    assert by["nof:of5200:rank"]["value"] == 40
+    assert by["nof:of5202"]["value"] == 2.7  # float noise removed
+    assert "nof:of5202:rank" not in by  # blank rank is not a zero
+    assert by["nof:of0084"]["unit"] == "score10" and "Staff engagement" in by["nof:of0084"]["metric_label"]
+    assert r.orgs["RXX"] == ("Alpha NHS Trust", "Acute trust")
+
+
+def test_nof_league_table_loads_only_new_fields():
+    from app.sources.nof import load_nof
+    r = load_nof("nof", "league.csv", NOF_LT.encode())
+    by = {m["metric_code"]: m["value"] for m in r.metrics}
+    assert by == {"nof:league_rank": 40, "nof:league_score_low": 2.4, "nof:league_score_high": 3.1,
+                  "nof:league_rank_low": 31, "nof:league_rank_high": 52}
+    assert {m["period"] for m in r.metrics} == {"Q1 2026/27"}  # "Q1 26/27" normalised
+
+
+def test_nof_unrecognised_layout_is_profile_only():
+    from app.sources.nof import load_nof
+    r = load_nof("nof", "x.csv", b"a,b\n1,2\n")
+    assert r.metrics == [] and r.mapper_status == "needs_review"
+
+
+def test_strain_uses_adjusted_segment_not_domain_or_unadjusted():
+    from app.indicators import strain_from_metrics
+    ms = [{"source": "nof", "metric_code": "nof:of5203", "label": "Unadjusted segment", "value": 1, "period": "p"},
+          {"source": "nof", "metric_code": "nof:of4300", "label": "domain segment", "value": 2, "period": "p"},
+          {"source": "nof", "metric_code": "nof:of5200", "label": "Adjusted segment", "value": 4, "period": "p"}]
+    assert strain_from_metrics(ms)["score"] == 4

@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from app.config import settings
 from app.periods import Period, parse_period
 
-LOADER_VERSION = 2  # bump when loader output changes, so unchanged files are reloaded
+LOADER_VERSION = 3  # bump when loader output changes, so unchanged files are reloaded
 ODS_RE = re.compile(r"^[A-Z0-9]{3,5}$")
 UNKNOWN_PERIOD = Period("unknown", 0, "unknown")
 
@@ -441,4 +441,7 @@ def get_loader(name: str):
     if name == "eric_site":
         from app.sources.eric_site import load_eric_site
         return load_eric_site
+    if name == "nof":
+        from app.sources.nof import load_nof
+        return load_nof
     return LOADERS.get(name, load_generic)

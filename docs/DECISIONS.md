@@ -19,3 +19,6 @@
 | D-015 | 2026-10-20 | Hand-maintained successor-code map; scorecards merge predecessor history | Mergers change ODS codes (RBZ to RH8) |
 | D-016 | 2026-10-20 | Commit Jon's ERIC site data (converted from Numbers) to the repo as a seed file | Public OGL data; NHS sites block our fetcher; lets us load immediately. Replace with the official CSV when we have the link |
 | D-017 | 2026-10-20 | Sum site rows to trust level; percentages weighted by floor area; Not Applicable treated as missing | Sites are additive; zero would misstate |
+| D-018 | 2026-10-20 | Dedicated NOF loader; strain v0 reads OF5200 (adjusted segment) | Generic loader would drop rank, unit and the per-metric reporting window, and picking "any segment" risks the unadjusted or a domain segment |
+| D-019 | 2026-10-20 | Load only league-table fields the trust data lacks (rank, likely ranges) | Segment, score and deficit flag matched the trust data for 202 of 202; duplicating them adds noise |
+| D-020 | 2026-10-20 | Commit Jon's NOF Q1 2026/27 files (converted from Numbers) as seeds | Same reasoning as D-016; replace with official CSV links via `SEED_URLS_NOF` |
