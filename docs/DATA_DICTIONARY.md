@@ -18,9 +18,13 @@ Raw questions keep ERIC codes in lower case (`eric_site:s03_10` = cost to eradic
 ## Derived metrics
 | Code | Definition |
 |---|---|
-| rtt:incomplete_pathways_total | Incomplete pathways, all specialties, summed across commissioners |
+| rtt:incomplete_pathways_total | Incomplete pathways (Part_2 only), all specialties, summed across commissioners |
 | rtt:incomplete_over_18_weeks | Those waiting 18 weeks or more (buckets starting at 18+) |
 | rtt:pct_within_18_weeks | (total - over 18) / total x 100 |
+| rtt:incomplete_over_52_weeks, rtt:pct_over_52_weeks | Waiting over 52 weeks (count, share) |
+| rtt:incomplete_median_wait_weeks, rtt:incomplete_p92_wait_weeks | Median and 92nd percentile wait of incomplete pathways, interpolated within week buckets (approximate) |
+| rtt:unknown_clock_start | Part_2A: pathways with no clock start date; not in the waiting list or distribution |
+| rtt:completed_admitted, rtt:completed_non_admitted | Completed pathways in the month (Part_1A, Part_1B) |
 
 ## Cautions
 HES counts episodes, not patients. NOF 2026/27 is not comparable with 2025/26. Organisation mergers change ODS codes; `current_code` holds the successor code where known (see `data/reference/code_successors.csv`).

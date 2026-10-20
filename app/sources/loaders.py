@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from app.config import settings
 from app.periods import Period, parse_period
 
-LOADER_VERSION = 3  # bump when loader output changes, so unchanged files are reloaded
+LOADER_VERSION = 4  # bump when loader output changes, so unchanged files are reloaded
 ODS_RE = re.compile(r"^[A-Z0-9]{3,5}$")
 UNKNOWN_PERIOD = Period("unknown", 0, "unknown")
 
@@ -386,7 +386,9 @@ def load_rtt(source_key: str, file_name: str, data: bytes, default_period: str |
         return fallback
 
     result = LoadResult(mapper_status="ok")
-    agg: dict = {}
+    nb = len(buckets)
+    agg: dict = {}  # (org, period) -> per-bucket incomplete pathways (index = weeks waited, rounded down)
+    other: dict = {}  # (org, period, part) -> total, for completed pathways and unknown clock starts
     names: dict = {}
     total_rows = 0
     sample = []
@@ -396,8 +398,10 @@ def load_rtt(source_key: str, file_name: str, data: bytes, default_period: str |
             sample.append(dict(zip(header, r)))
         if max(i_org, i_part, i_tfc, i_total) >= len(r):
             continue
+        # Exact part codes: Part_2 is incomplete pathways; Part_2A is patients with an unknown clock start,
+        # which must not be mixed into waiting-time distributions. 1A/1B are completed admitted/non-admitted.
         part = slug(r[i_part])
-        if "part_2" not in part and "incomplete" not in part:
+        if part not in ("part_2", "part_2a", "part_1a", "part_1b"):
             continue
         if r[i_tfc].strip().upper() != "C_999":
             continue
@@ -405,30 +409,57 @@ def load_rtt(source_key: str, file_name: str, data: bytes, default_period: str |
         if not ODS_RE.match(org):
             continue
         period = parse_period(r[i_period]) or _file_period(file_name, default_period)
-        total = to_float(r[i_total]) or 0.0
-        over18 = sum((to_float(r[i]) or 0.0) for i, lo in buckets if lo >= 18 and i < len(r))
-        key = (org, period)
-        a = agg.setdefault(key, [0.0, 0.0])
-        a[0] += total
-        a[1] += over18
         if i_name is not None and i_name < len(r):
             names.setdefault(org, r[i_name].strip() or None)
+        if part == "part_2":
+            vec = agg.setdefault((org, period), [0.0] * (buckets[-1][1] + 1))
+            for i, lo in buckets:
+                if i < len(r):
+                    vec[lo] += to_float(r[i]) or 0.0
+        else:
+            k = (org, period, part)
+            other[k] = other.get(k, 0.0) + (to_float(r[i_total]) or 0.0)
 
-    for (org, period), (total, over18) in agg.items():
+    def wait_at(vec, q):
+        """Weeks waited at quantile q of incomplete pathways, interpolated within the week bucket (approximate)."""
+        n = sum(vec)
+        target, cum = q * n, 0.0
+        for wk, c in enumerate(vec):
+            if c and cum + c >= target:
+                return round(wk + (target - cum) / c, 1)
+            cum += c
+        return float(len(vec) - 1)
+
+    for (org, period), vec in agg.items():
+        total = sum(vec)
         if total <= 0:
             continue
+        over18 = sum(vec[18:])
+        over52 = sum(vec[52:])
         result.orgs.setdefault(org, (names.get(org), None))
-        result.metrics.append(_metric("rtt:incomplete_pathways_total", "RTT incomplete pathways, all specialties", org, period, total, source_key, "count"))
-        result.metrics.append(_metric("rtt:incomplete_over_18_weeks", "RTT incomplete pathways waiting over 18 weeks", org, period, over18, source_key, "count"))
-        result.metrics.append(_metric("rtt:pct_within_18_weeks", "RTT share of incomplete pathways within 18 weeks", org, period, round(100 * (total - over18) / total, 2), source_key, "pct"))
+        add = lambda code, label, val, unit: result.metrics.append(_metric(code, label, org, period, val, source_key, unit))
+        add("rtt:incomplete_pathways_total", "RTT incomplete pathways, all specialties", total, "count")
+        add("rtt:incomplete_over_18_weeks", "RTT incomplete pathways waiting over 18 weeks", over18, "count")
+        add("rtt:pct_within_18_weeks", "RTT share of incomplete pathways within 18 weeks", round(100 * (total - over18) / total, 2), "pct")
+        add("rtt:incomplete_over_52_weeks", "RTT incomplete pathways waiting over 52 weeks", over52, "count")
+        add("rtt:pct_over_52_weeks", "RTT share of incomplete pathways waiting over 52 weeks", round(100 * over52 / total, 2), "pct")
+        add("rtt:incomplete_median_wait_weeks", "RTT median wait of incomplete pathways (weeks, interpolated)", wait_at(vec, 0.5), "weeks")
+        add("rtt:incomplete_p92_wait_weeks", "RTT 92nd percentile wait of incomplete pathways (weeks, interpolated)", wait_at(vec, 0.92), "weeks")
+        for part, code, label in (("part_2a", "rtt:unknown_clock_start", "RTT pathways with unknown clock start date"),
+                                  ("part_1a", "rtt:completed_admitted", "RTT completed pathways, admitted"),
+                                  ("part_1b", "rtt:completed_non_admitted", "RTT completed pathways, non-admitted")):
+            v = other.get((org, period, part))
+            if v is not None:
+                add(code, label, v, "count")
 
     result.row_count = total_rows
     result.profile = {
         "file": file_name, "encoding": enc, "columns": header, "shape": "rtt", "sample": sample,
         "rows_read": total_rows, "metrics_loaded": len(result.metrics), "orgs": len(result.orgs),
         "periods": sorted({p.label for (_, p) in agg})[:24], "loader_version": LOADER_VERSION,
-        "notes": ["Incomplete pathways (Part_2), all specialties (C_999), summed across commissioners. "
-                  "pct_within_18_weeks = (total - waiting over 18 weeks) / total."],
+        "notes": ["Incomplete pathways (exactly Part_2), all specialties (C_999), summed across commissioners; Part_2A (unknown clock start) kept apart. "
+                  "Bucket 'Gt 17 To 18' is 18 weeks or less, so over 18 weeks starts at 'Gt 18 To 19'. "
+                  "Median and 92nd percentile are interpolated within week buckets (approximate)."],
     }
     return result
 

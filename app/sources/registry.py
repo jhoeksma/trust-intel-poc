@@ -61,9 +61,11 @@ SOURCES: dict[str, SourceSpec] = {
             cadence="Monthly",
             index_urls=("https://www.england.nhs.uk/statistics/statistical-work-areas/rtt-waiting-times/rtt-data-2026-27/",),
             link_text_re=r"(?i)full csv data file",
+            seed_urls=("file://data/manual/RTT%20-%20Aug%202026%20-%20Full%20CSV%20data%20file.zip",),
             kind="zip_csv",
             loader="rtt",
-            note="Aggregated by us from provider by specialty by commissioner rows; see DATA_DICTIONARY.md.",
+            note="Aggregated by us from provider by specialty by commissioner rows; see DATA_DICTIONARY.md. "
+            "August 2026 full extract supplied by Jon (20 Oct 2026) and committed as a seed (public, OGL, 3.4MB zip); one month only, so no trend until earlier months are added.",
         ),
         SourceSpec(
             key="workforce",

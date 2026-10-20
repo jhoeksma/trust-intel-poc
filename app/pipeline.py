@@ -78,7 +78,9 @@ def run_source(db: Session, key: str) -> dict:
         return summary
 
     loader = get_loader(spec.loader)
-    for f in found.files[:3]:  # newest-first lists; cap per run
+    # newest-first lists from discovery are capped per run; hand-supplied seed files are an explicit, finite list
+    files = found.files if all(f.via == "seed_url" for f in found.files) else found.files[:3]
+    for f in files:
         summary["files"] += 1
         try:
             data = fetch.download(f.url)

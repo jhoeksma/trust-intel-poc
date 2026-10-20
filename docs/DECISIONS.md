@@ -22,3 +22,6 @@
 | D-018 | 2026-10-20 | Dedicated NOF loader; strain v0 reads OF5200 (adjusted segment) | Generic loader would drop rank, unit and the per-metric reporting window, and picking "any segment" risks the unadjusted or a domain segment |
 | D-019 | 2026-10-20 | Load only league-table fields the trust data lacks (rank, likely ranges) | Segment, score and deficit flag matched the trust data for 202 of 202; duplicating them adds noise |
 | D-020 | 2026-10-20 | Commit Jon's NOF Q1 2026/27 files (converted from Numbers) as seeds | Same reasoning as D-016; replace with official CSV links via `SEED_URLS_NOF` |
+| D-021 | 2026-10-20 | Load RTT from the full CSV; do not load the Excel trust report | Same counts, no cached summary values, and the CSV allows the same percentiles to be computed and tested |
+| D-022 | 2026-10-20 | Exact RTT part codes; unknown clock start (Part_2A) kept separate | Mixing them overstated the waiting list by 1.19m and distorted the 18-week share |
+| D-023 | 2026-10-20 | Hand-supplied seed URLs are not capped per run | The cap is for newest-first discovery lists; seeds are an explicit finite list |

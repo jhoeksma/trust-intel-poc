@@ -135,3 +135,34 @@ def test_strain_uses_adjusted_segment_not_domain_or_unadjusted():
           {"source": "nof", "metric_code": "nof:of4300", "label": "domain segment", "value": 2, "period": "p"},
           {"source": "nof", "metric_code": "nof:of5200", "label": "Adjusted segment", "value": 4, "period": "p"}]
     assert strain_from_metrics(ms)["score"] == 4
+
+
+# ---- RTT
+def _rtt_csv(rows):
+    head = ["Period", "Provider Org Code", "Provider Org Name", "RTT Part Type", "Treatment Function Code"]
+    head += [f"Gt {i:02d} To {i + 1:02d} Weeks SUM 1" for i in range(0, 104)] + ["Gt 104 Weeks SUM 1", "Total", "Patients with unknown clock start date", "Total All"]
+    out = [",".join(head)]
+    for part, tfc, buckets in rows:
+        vec = [0] * 105
+        for wk, n in buckets.items():
+            vec[wk] = n
+        out.append(",".join(["RTT-August-2026", "RXX", "Alpha", part, tfc] + [str(v) for v in vec] + ["", "", str(sum(vec))]))
+    return "\n".join(out).encode()
+
+
+def test_rtt_incomplete_excludes_unknown_clock_and_other_specialties():
+    from app.sources.loaders import load_rtt
+    data = _rtt_csv([
+        ("Part_2", "C_999", {0: 50, 17: 30, 18: 10, 60: 10}),  # 100 waiting: 80 within 18 weeks, 10 over 52
+        ("Part_2", "C_100", {0: 999}),  # specialty row: ignored
+        ("Part_2A", "C_999", {5: 500}),  # unknown clock start: must not enter the distribution
+        ("Part_1A", "C_999", {3: 7}),
+    ])
+    r = load_rtt("rtt", "x.csv", data)
+    by = {m["metric_code"]: m["value"] for m in r.metrics}
+    assert by["rtt:incomplete_pathways_total"] == 100
+    assert by["rtt:pct_within_18_weeks"] == 80.0  # bucket 'Gt 17 To 18' is within 18 weeks
+    assert by["rtt:incomplete_over_52_weeks"] == 10 and by["rtt:pct_over_52_weeks"] == 10.0
+    assert by["rtt:unknown_clock_start"] == 500 and by["rtt:completed_admitted"] == 7
+    assert 0 <= by["rtt:incomplete_median_wait_weeks"] <= 1  # 50 of 100 sit in the first week bucket
+    assert by["rtt:incomplete_p92_wait_weeks"] >= 18

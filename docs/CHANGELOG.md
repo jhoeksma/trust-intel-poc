@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 - 2026-10-20
+- RTT August 2026 full extract (supplied by Jon) committed as a seed: `data/manual/RTT - Aug 2026 - Full CSV data file.zip`. 532 providers, one month.
+- **Bug fixed in `load_rtt`**: the part filter matched `part_2a` (patients with unknown clock start) as well as `part_2` (incomplete pathways), inflating the waiting list from 7.19m to 8.38m and understating within-18-weeks (63.1% instead of 65.2%). Now exact part codes; unknown-clock-start pathways are kept as their own metric.
+- New RTT metrics per provider: over 52 weeks (count and share), median and 92nd percentile wait (interpolated within week buckets, approximate), unknown clock starts, completed pathways admitted and non-admitted.
+- The Excel "Waiting Times by Hospital Trust" report was reviewed and not loaded: it is NHS England's interactive report over the same provider-by-specialty counts as the full CSV, and its summary cells hold no cached values.
+- Seed files supplied by hand are no longer capped at 3 per run (the cap hid the three NOF league tables; discovered files stay capped). `LOADER_VERSION` 4.
+- 39 tests.
+
 ## 0.4.0 - 2026-10-20
 - New dedicated NOF loader `app/sources/nof.py` for the Q1 2026/27 NHS Oversight Framework files supplied by Jon (Numbers, converted to CSV and committed under `data/manual/`): trust data for acute (134 trusts), ambulance (10) and mental health and community (58), plus the three league tables. 202 trusts, 177 metric codes.
 - Trust data loads every metric with its unit and peer rank (`nof:<metric>` and `nof:<metric>:rank`). League tables add `nof:league_rank` and the likely ranges for score and rank (`league_score_low/high`, `league_rank_low/high`). Segment, score and deficit flag in the league tables are identical to OF5200, OF5202 and OF5204 for all 202 trusts, so are not reloaded.
