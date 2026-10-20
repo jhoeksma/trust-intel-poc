@@ -1,5 +1,8 @@
 # Changelog
 
+## Review - 2026-10-20
+- First live load reviewed: see docs/REVIEW-2026-10-20-first-load.md. No code changes.
+
 ## 0.1.1 - 2026-10-20
 - Fix: add python-multipart to requirements (first Railway deploy crashed on the CSV upload endpoint; local tests had it installed globally).
 

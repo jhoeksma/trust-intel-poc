@@ -1,0 +1,32 @@
+# First load review, 20 October 2026
+
+Run 1 (manual, 09:57 UTC) on Railway. Status: partial.
+
+## Scorecard
+| Source | Result | Metric rows | Orgs | Verdict |
+|---|---|---|---|---|
+| nof | discovery failed (page returned no links) | 0 | 0 | Not loaded. Blocks the strain score. |
+| rtt | discovery failed (page returned no links) | 0 | 0 | Not loaded |
+| workforce | 17 CSVs loaded via seed URL (index page 403) | 635,699 | 237 | Loaded but not analytically usable yet (dimensions collapsed) |
+| eric | 1 CSV loaded via seed URL (index page 403) | 8,938 | 207 | Loaded; period lost; trust file lacks cost and backlog fields |
+| hes | 1 CSV loaded via seed URL (index page 403) | 58,623 | 583 | Loaded; labels are codes; suppressed values dropped |
+
+Join to the FHI reference list: 236 of 274 (86.1%). The 38 unmatched are mostly not trusts: NHS England region codes (7A1 to 7A7), central bodies, dummy codes (SA999 to SZ999, ZT001 to ZT005, XDH, W01, T1520). Likely genuine misses: RBZ (believed to be Northern Devon Healthcare, merged into Royal Devon in 2022, so a stale code), RQF, RT4, QRV, 0AR, 0CX, 0DE, 0DF, K0N6A: to check. 100 public codes are not in the reference list (13Q, GP and ICB-level codes such as ACG12, ADP02). Expected, since the public files cover more than trusts.
+
+## Defects found
+1. **Discovery is blocked from Railway.** NHS Digital index pages return 403 to our fetcher; england.nhs.uk pages return nothing parseable (empty link list, no error). Only files.digital.nhs.uk downloads work. The seed URLs saved the three loaded sources. NOF and RTT have no seed URLs, so they failed.
+2. **Dimensions collapsed (workforce, Core 3/5/8/10/14/15/17).** Rows are org by staff group by role by area; the loader emits one metric (`workforce:fte`) per row, so one org has hundreds of values for the same org, metric and period. The scorecard shows an arbitrary one. Fix: sum additive measures per org (total FTE, headcount) and per main staff group.
+3. **ERIC period unknown.** The file name is URL-encoded (`ERIC%20-%202024_25...`), so the financial-year pattern fails. Fix: decode file names before parsing periods. Affects 8,938 rows.
+4. **ERIC trust file is thin on money.** 56 columns; no backlog maintenance, energy cost or PFI fields visible. Those sit in the separate site-level ERIC file, which needs adding and aggregating to trust level.
+5. **HES labels are codes** (`FAE_SUM`, etc.) and suppressed values (`*`) are dropped silently. Fix: add a measure glossary and record suppression counts as quality flags.
+6. **England, region and ICS-level workforce tables** (Core 1, 2, 4, 6, 7, 9, 11, 12, 13, 16) were profiled only (no organisation code). Correct behaviour, but there are useful national benchmarks in them.
+7. **Strain score is blank** for every trust until NOF loads.
+
+## What worked
+Provenance, failure recording, seed fallback, schema detection on 19 files without human mapping, 86% join to the FHI list on the first pass, and the clean 403 diagnostics.
+
+## Next fixes (in order)
+1. Seed URLs for NOF and RTT (and make discovery fall back to a browser-like fetch or a stored URL list).
+2. Aggregation in the wide loader and URL-decoded names.
+3. ERIC site file; HES glossary.
+4. Stale-code map (current_code) starting with RBZ.
