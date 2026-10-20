@@ -1,5 +1,8 @@
 # Changelog
 
+## Notes - 2026-10-20
+- Strain score scale and v0 limits documented in `docs/STRAIN_SCORE.md`; v1 parked (D-025).
+
 ## 0.5.0 - 2026-10-20
 - RTT August 2026 full extract (supplied by Jon) committed as a seed: `data/manual/RTT - Aug 2026 - Full CSV data file.zip`. 532 providers, one month.
 - **Bug fixed in `load_rtt`**: the part filter matched `part_2a` (patients with unknown clock start) as well as `part_2` (incomplete pathways), inflating the waiting list from 7.19m to 8.38m and understating within-18-weeks (63.1% instead of 65.2%). Now exact part codes; unknown-clock-start pathways are kept as their own metric.
