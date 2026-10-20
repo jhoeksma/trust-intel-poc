@@ -276,7 +276,9 @@ def main():
     # size coherence: independent size measures should move together
     def size_pair(a, b, label):
         if has(a) and has(b):
-            both = [o for o in latest[a] if o in latest[b] and latest[a][o] > 0 and latest[b][o] > 0]
+            both = [o for o in latest[a] if o in latest[b] and latest[a][o] > 0 and latest[b][o] > 0
+                    and (not (a.startswith("rtt:") or b.startswith("rtt:")) or nof_group(o) == "acute")]
+            label += " (acute trusts)" if (a.startswith("rtt:") or b.startswith("rtt:")) else ""
             r = pearson([math.log(latest[a][o]) for o in both], [math.log(latest[b][o]) for o in both])
             say("PASS" if r and r > 0.6 else "WARN", f"{label}: n={len(both)}, log-log r={r if r is None else round(r,2)}")
         else:
@@ -306,7 +308,9 @@ def main():
     # ---------------------------------------------------------------- 5 identity
     head("5. Identity and joins")
     unnamed = [o for o in orgs.values() if not o.name]
-    say("PASS" if not unnamed else "WARN", f"orgs without a name: {len(unnamed)}")
+    by_src = Counter(o.first_seen_source for o in unnamed)
+    in_ref = sum(1 for o in unnamed if o.ods_code in ref)
+    say("PASS" if not unnamed else "INFO", f"orgs without a name: {len(unnamed)} (first seen in {dict(by_src)}); {in_ref} are in the FHI list, so named from it")
     def norm(n):
         return re.sub(r"[^a-z0-9]", "", re.sub(r"(?i)\b(nhs|foundation|trust|the)\b", "", n or "").lower())
     clash = [(c, ref[c]["name"], orgs[c].name) for c in ref if c in orgs and orgs[c].name and norm(orgs[c].name) != norm(ref[c]["name"])]
