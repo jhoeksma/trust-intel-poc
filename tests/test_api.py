@@ -100,3 +100,69 @@ def test_successor_code_history_shows_on_current_trust(client, db):
     db.commit()
     card = client.get("/api/trusts/RH8").json()
     assert any(m["metric_code"] == "rtt:pct_within_18_weeks" for m in card["metrics"])
+
+
+@pytest.fixture()
+def bench(db):
+    """Twelve acute-looking trusts with a lower-is-better and a higher-is-better metric."""
+    from app.benchmark import _cache
+    _cache.clear()
+    from app.main import app
+    sf = SourceFile(source_key="nof", status="loaded")
+    db.add(sf)
+    db.flush()
+    for i in range(12):
+        code = f"R{i:02d}"
+        db.add(Org(ods_code=code, name=f"Trust {i}"))
+        db.add(Metric(ods_code=code, source_key="nof", metric_code="nof:of5200", metric_label="Segment", period="Q1 2026/27",
+                      period_sort=202604, period_type="quarter", value=float(1 + i % 4), unit="segment", source_file_id=sf.id))
+        db.add(Metric(ods_code=code, source_key="rtt", metric_code="rtt:pct_within_18_weeks", metric_label="18w", period="2026-08",
+                      period_sort=202608, period_type="month", value=50.0 + i, unit="pct", source_file_id=sf.id))
+        db.add(Metric(ods_code=code, source_key="rtt", metric_code="rtt:incomplete_pathways_total", metric_label="Waiting", period="2026-08",
+                      period_sort=202608, period_type="month", value=1000.0 * (i + 1), unit="count", source_file_id=sf.id))
+    db.add(Metric(ods_code="R00", source_key="nof", metric_code="nof:of5200:rank", metric_label="r", period="Q1 2026/27",
+                  period_sort=202604, period_type="quarter", value=1.0, source_file_id=sf.id))
+    db.commit()
+    return TestClient(app)
+
+
+def test_catalogue_excludes_companions_and_marks_polarity(bench):
+    rows = {r["metric_code"]: r for r in bench.get("/api/benchmark/metrics").json()}
+    assert "nof:of5200:rank" not in rows
+    assert rows["nof:of5200"]["polarity"] == "lower" and rows["nof:of5200"]["core"]
+    assert rows["rtt:pct_within_18_weeks"]["polarity"] == "higher"
+    assert rows["rtt:incomplete_pathways_total"]["polarity"] is None
+
+
+def test_metric_view_ranks_best_first(bench):
+    v = bench.get("/api/benchmark/metric?code=rtt:pct_within_18_weeks").json()
+    assert v["points"][0]["ods_code"] == "R11" and v["points"][-1]["ods_code"] == "R00"
+    assert v["stats"]["n"] == 12 and v["stats"]["median"] == 55.5 and v["ranking"] == "best first"
+    low = bench.get("/api/benchmark/metric?code=nof:of5200").json()
+    assert low["points"][0]["value"] == 1.0
+    neutral = bench.get("/api/benchmark/metric?code=rtt:incomplete_pathways_total").json()
+    assert neutral["ranking"] == "highest first" and neutral["points"][0]["value"] == 12000
+
+
+def test_trust_position_and_ties(bench):
+    b = bench.get("/api/benchmark/trust/r11?codes=rtt:pct_within_18_weeks,nof:of5200&scope=national").json()
+    rtt = next(m for m in b["metrics"] if m["metric_code"] == "rtt:pct_within_18_weeks")
+    assert rtt["rank"] == 1 and rtt["n"] == 12 and rtt["better_than_pct"] == 100.0 and rtt["quartile"] == 1
+    seg = next(m for m in b["metrics"] if m["metric_code"] == "nof:of5200")
+    assert seg["value"] == 4.0 and seg["rank"] == 10 and seg["quartile"] == 4  # three trusts at 4: tied worst, rank 10
+    assert b["peer_group"] == "acute"
+
+
+def test_neutral_metric_has_no_quartile_and_peers_fall_back(bench):
+    b = bench.get("/api/benchmark/trust/R03?codes=rtt:incomplete_pathways_total&scope=peers").json()
+    m = b["metrics"][0]
+    assert m["quartile"] is None and m["rank"] == 9 and m["scope_used"] == "peers"
+
+
+def test_default_codes_are_core_and_bad_input(bench):
+    b = bench.get("/api/benchmark/trust/R01").json()
+    assert {m["metric_code"] for m in b["metrics"]} >= {"nof:of5200", "rtt:pct_within_18_weeks"}
+    assert bench.get("/api/benchmark/trust/ZZZ").status_code == 404
+    assert bench.get("/api/benchmark/trust/R01?scope=x").status_code == 422
+    assert bench.get("/api/benchmark/metric?code=nope").status_code == 404
+    assert bench.get("/api/benchmark/metric?code=nof:of5200&group=bogus").status_code == 422

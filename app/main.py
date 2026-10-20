@@ -16,7 +16,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.orm import Session
 
-from app import indicators
+from app import benchmark, indicators
 from app.config import settings
 from app.db import get_db
 from app.models import Metric, Org, RefreshRun, SourceFile, TrustSystem
@@ -79,6 +79,37 @@ def compare(codes: str, db: Session = Depends(get_db)):
     rows = sorted(shared.values(), key=lambda r: (r["source"], r["metric_code"]))
     return {"trusts": [{"ods_code": c["ods_code"], "name": c["name"], "strain": c["strain"]["score"]} for c in cards],
             "rows": rows}
+
+
+@app.get("/api/benchmark/metrics", dependencies=[Depends(require_auth)])
+def benchmark_metrics(db: Session = Depends(get_db)):
+    """Comparable metrics (at least 10 organisations), with the direction in which each is good and the core flag."""
+    return benchmark.catalogue(db)
+
+
+@app.get("/api/benchmark/metric", dependencies=[Depends(require_auth)])
+def benchmark_metric(code: str, group: str | None = None, db: Session = Depends(get_db)):
+    """One metric across every organisation (optionally one peer group), ranked, with distribution statistics."""
+    if group is not None and group not in benchmark.GROUP_LABELS:
+        raise HTTPException(422, "group must be one of " + ", ".join(benchmark.GROUP_LABELS))
+    view = benchmark.metric_view(db, code, group)
+    if view is None:
+        raise HTTPException(404, "Unknown or too sparse metric (needs at least 10 organisations)")
+    return view
+
+
+@app.get("/api/benchmark/trust/{ods}", dependencies=[Depends(require_auth)])
+def benchmark_trust(ods: str, codes: str = "", scope: str = "peers", db: Session = Depends(get_db)):
+    """Where one organisation sits on each chosen metric. No codes given means the core fields."""
+    if scope not in ("peers", "national"):
+        raise HTTPException(422, "scope must be peers or national")
+    ods = ods.upper()
+    if db.get(Org, ods) is None:
+        raise HTTPException(404, "Unknown organisation code")
+    wanted = [c.strip() for c in codes.split(",") if c.strip()][:60]
+    if not wanted:
+        wanted = benchmark.core_codes(db)
+    return benchmark.trust_benchmark(db, ods, wanted, scope)
 
 
 @app.get("/api/sources", dependencies=[Depends(require_auth)])

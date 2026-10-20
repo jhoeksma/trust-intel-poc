@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 - 2026-10-20
+
+- Benchmarking API: `GET /api/benchmark/metrics` (comparable measures, direction, core flag), `GET /api/benchmark/metric?code=&group=` (one measure across every organisation, ranked, with distribution statistics) and `GET /api/benchmark/trust/{ods}?codes=&scope=peers|national` (rank, share beaten, quartile and gap to median per chosen measure). Logic in `app/benchmark.py`.
+- Explorer tab: pick one measure, see every organisation as a dot (continuous measures) or as count bars (segments, ratings, flags), highlight any trust, filter to a peer group, and read the full ranking underneath.
+- Trust dashboard (replaces the Trust tab): core fields by default, any other measure added or removed from a searchable picker (choice remembered in the browser), each shown with value, rank, share of peers beaten, quartile and a range bar. The old full value table is kept in a collapsible section.
+- Reference: successors RNK to G6V2S, RVJ to RA7, RY2 to RWW added to `code_successors.csv`; RY3 added to `trusts_ods.csv` (no FHI id yet). Source: Jon, 20 Oct 2026, quoting NHS Digital's ODS mergers page. To verify against ODS.
+- Tests: 54 passing.
+
 ## 0.6.0 - 2026-10-20
 - New source `cqc`: CQC "Latest ratings" workbook (monthly .ods, OGL v3; CQC acknowledged as source). Provider-level overall rating, the five key questions, Use of Resources and combined quality rating, plus counts of core services rated below Good. Discovered automatically from CQC's "Using CQC data" page (reachable from Railway); seed URL is the October 2026 file.
 - Ratings stored 1 Inadequate, 2 Requires improvement, 3 Good, 4 Outstanding; "Not rated" is not stored. A rating's period is its publication month, which can be years old. Trusts under CQC's new approach record the overall rating as Well-led / Overall; the more recently published of old and new wins.

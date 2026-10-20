@@ -6,8 +6,8 @@
 <title>Trust Intelligence PoC</title>
 <style>
 :root{--bg:#f7f8fa;--card:#fff;--ink:#1b2430;--mute:#667085;--line:#e3e7ee;--accent:#0b5cad;
---s1:#2e8b57;--s2:#8fb339;--s3:#e0a800;--s4:#e2711d;--s5:#c0392b}
-@media (prefers-color-scheme:dark){:root{--bg:#10151c;--card:#182029;--ink:#e8edf3;--mute:#9aa6b5;--line:#2a3541;--accent:#5aa2e8}}
+--band:#cfdaea;--dot:#8a99ad;--s1:#2e8b57;--s2:#8fb339;--s3:#e0a800;--s4:#e2711d;--s5:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#10151c;--card:#182029;--band:#34465a;--dot:#6f8199;--ink:#e8edf3;--mute:#9aa6b5;--line:#2a3541;--accent:#5aa2e8}}
 *{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--ink)}
 header{padding:14px 16px;border-bottom:1px solid var(--line);background:var(--card);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
 h1{font-size:17px;margin:0}nav{display:flex;gap:4px;flex-wrap:wrap}
@@ -26,6 +26,20 @@ button.act{font:inherit;padding:6px 12px;border-radius:6px;border:1px solid var(
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 a{color:var(--accent);cursor:pointer}pre{white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto;background:var(--bg);padding:8px;border-radius:6px}
 .c1{background:var(--s5)}.c2{background:var(--s4)}.c3{background:var(--s2)}.c4{background:var(--s1)}
+.top{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between;align-items:flex-start}
+.ctl{display:flex;gap:12px;align-items:flex-end}
+.chip{display:inline-block;border:1px solid var(--line);background:var(--bg);border-radius:14px;padding:2px 10px;margin:0 6px 6px 0;font-size:13px}
+.chip a{margin-left:4px;font-weight:700}
+.picker{max-height:260px;overflow:auto;margin-top:8px}.gh{font-size:12px;font-weight:700;color:var(--mute);margin-top:8px;text-transform:uppercase}
+.pk{display:block;padding:2px 0;cursor:pointer}
+.qchip{display:inline-block;border-radius:10px;padding:1px 9px;color:#fff;font-size:12px;font-weight:600}
+.mrow{display:grid;grid-template-columns:minmax(200px,1.5fr) minmax(130px,.8fr) minmax(130px,.8fr) minmax(240px,1.4fr);gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);align-items:center}
+.mrow:last-child{border-bottom:0}.rb{width:100%;max-width:340px;height:auto}
+svg text.ax{font-size:11px;fill:var(--mute)}svg text.lbl{font-size:13px;font-weight:600;fill:var(--ink);paint-order:stroke;stroke:var(--card);stroke-width:4px}svg.chart{width:100%;height:auto}
+.callout{background:var(--bg);border-left:4px solid var(--accent);padding:8px 12px;border-radius:4px;margin-bottom:8px}
+.rankbox{max-height:440px;overflow:auto;margin-top:8px;position:relative}.bar{height:8px;border-radius:4px}.rankbox th{position:sticky;top:0;background:var(--card)}
+tr.me td{background:var(--bg);font-weight:600}
+@media (max-width:760px){.mrow{grid-template-columns:1fr 1fr}.mc{grid-column:1/-1}.ctl{flex-wrap:wrap}}
 .up{color:var(--s1)}.dn{color:var(--s5)}
 </style>
 </head>
@@ -34,8 +48,8 @@ a{color:var(--accent);cursor:pointer}pre{white-space:pre-wrap;font-size:12px;max
 <nav id="nav"></nav><span class="mute" style="margin-left:auto">Internal spike. Public NHS data joined by ODS code.</span></header>
 <main id="main"></main>
 <script>
-var state = {tab: 'dashboard', trusts: [], sort: 'strain', dir: -1, filter: '', cmp: []};
-var TABS = [['dashboard', 'Dashboard'], ['trust', 'Trust'], ['compare', 'Compare'], ['sources', 'Sources']];
+var state = {tab: 'dashboard', trusts: [], sort: 'strain', dir: -1, filter: '', cmp: [], fields: null, scope: null, cat: null};
+var TABS = [['dashboard', 'Dashboard'], ['trust', 'Trust dashboard'], ['explorer', 'Explorer'], ['compare', 'Compare'], ['sources', 'Sources']];
 
 function api(path, opts) {
   return fetch(path, opts).then(function (r) {
@@ -58,6 +72,7 @@ function go(tab, arg) {
   state.tab = tab; nav();
   if (tab === 'dashboard') { return dashboard(); }
   if (tab === 'trust') { return trustView(arg || state.current); }
+  if (tab === 'explorer') { return explorerView(arg); }
   if (tab === 'compare') { return compareView(); }
   if (tab === 'sources') { return sourcesView(); }
 }
@@ -106,30 +121,326 @@ function toggleCmp(c, on) {
   state.cmp = state.cmp.slice(-5);
 }
 
+/* ---------- benchmarking: shared helpers ---------- */
+var QCOL = {1: 'var(--s1)', 2: 'var(--s2)', 3: 'var(--s4)', 4: 'var(--s5)'};
+var QTXT = {1: 'Top quartile', 2: 'Upper middle', 3: 'Lower middle', 4: 'Bottom quartile'};
+function enc(s) { return encodeURIComponent(s); }
+function lsGet(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable: keep in memory only */ } }
+function coreCodes(cat) {
+  return cat.filter(function (c) { return c.core; }).sort(function (a, b) { return a.core_rank - b.core_rank; }).map(function (c) { return c.metric_code; });
+}
+function getCatalogue() {
+  return state.cat ? Promise.resolve(state.cat) : api('/api/benchmark/metrics').then(function (c) { state.cat = c; return c; });
+}
+function getTrusts() {
+  return state.trusts.length ? Promise.resolve(state.trusts) : api('/api/trusts').then(function (r) { state.trusts = r; return r; });
+}
+function fmt(v, unit) {
+  if (v == null) { return '–'; }
+  if (unit === 'rating') { return CQC[Math.round(v)] || num(v, 1); }
+  if (unit === 'pct') { return num(v, 1) + '%'; }
+  if (unit === 'segment') { return 'Segment ' + num(v, 0); }
+  if (unit === 'flag') { return v ? 'Yes' : 'No'; }
+  if (unit === 'rank') { return '#' + num(v, 0); }
+  if (unit === 'mins') { return num(v, 1) + ' min'; }
+  return num(v, Math.abs(v) >= 100 ? 0 : 2);
+}
+function dirText(pol) { return pol === 'higher' ? 'Higher is better' : pol === 'lower' ? 'Lower is better' : 'No direction implied: ranked highest first'; }
+function rankOf(points, mine, pol) {
+  var ahead = 0, behind = 0;
+  points.forEach(function (p) {
+    if (pol === 'lower') { if (p.value < mine) { ahead++; } else if (p.value > mine) { behind++; } }
+    else { if (p.value > mine) { ahead++; } else if (p.value < mine) { behind++; } }
+  });
+  return {rank: ahead + 1, n: points.length, beaten: points.length > 1 ? Math.round(1000 * behind / (points.length - 1)) / 10 : 100};
+}
+function quartileOf(beaten) { return beaten >= 75 ? 1 : beaten >= 50 ? 2 : beaten >= 25 ? 3 : 4; }
+
+/* A bullet chart: full range, middle half shaded, median tick, this organisation as a dot. */
+function rangeBar(r) {
+  var s = r.stats;
+  if (!s || s.n < 2 || s.max === s.min) { return '<span class="mute">no spread</span>'; }
+  var W = 320, pad = 8, x = function (v) { return pad + (W - 2 * pad) * (v - s.min) / (s.max - s.min); };
+  var col = QCOL[r.quartile] || 'var(--accent)';
+  var h = '<svg viewBox="0 0 ' + W + ' 46" class="rb" role="img" aria-label="' + esc(r.label) + ': position among ' + s.n + '">';
+  h += '<rect x="' + pad + '" y="16" width="' + (W - 2 * pad) + '" height="8" rx="4" fill="var(--line)"/>';
+  h += '<rect x="' + x(s.p25) + '" y="14" width="' + Math.max(3, x(s.p75) - x(s.p25)) + '" height="12" rx="3" fill="var(--band)"/>';
+  h += '<line x1="' + x(s.median) + '" x2="' + x(s.median) + '" y1="11" y2="29" stroke="var(--mute)" stroke-width="2"/>';
+  if (r.value != null) { h += '<circle cx="' + x(r.value) + '" cy="20" r="7" fill="' + col + '" stroke="var(--card)" stroke-width="2"/>'; }
+  h += '<text x="' + pad + '" y="44" class="ax">' + esc(fmt(s.min, r.unit)) + '</text>';
+  h += '<text x="' + (W - pad) + '" y="44" class="ax" text-anchor="end">' + esc(fmt(s.max, r.unit)) + '</text>';
+  h += '<text x="' + x(s.median) + '" y="8" class="ax" text-anchor="middle">median ' + esc(fmt(s.median, r.unit)) + '</text>';
+  return h + '</svg>';
+}
+
+/* ---------- trust dashboard ---------- */
 function trustView(code) {
-  if (!code) { return main('<div class="card">Pick a trust from the dashboard.</div>'); }
+  if (!code) { return main('<div class="card">Pick a trust from the <a onclick="go(\'dashboard\')">dashboard</a>, or use the Explorer.</div>'); }
   state.current = code;
-  api('/api/trusts/' + encodeURIComponent(code)).then(function (t) {
-    var h = '<div class="card"><h2 style="margin:0">' + esc(t.name || t.ods_code) + ' <span class="mute">' + esc(t.ods_code) + '</span></h2>' +
-      '<p>Strain ' + pill(t.strain.score) + ' ' + esc(t.strain.label) + ' <span class="mute">· ' + esc(t.strain.basis) + '</span></p></div>';
+  Promise.all([api('/api/trusts/' + enc(code)), getCatalogue(), getTrusts()]).then(function (res) {
+    var t = res[0], cat = res[1];
+    if (!state.fields) {
+      var saved = lsGet('fhi_fields');
+      state.fields = (saved && saved.length) ? saved : coreCodes(cat);
+    }
+    if (state.scope == null) { state.scope = lsGet('fhi_scope') || 'peers'; }
+    var row = state.trusts.filter(function (x) { return x.ods_code === t.ods_code; })[0] || {};
+    var h = '<div class="card"><div class="top"><div><h2 style="margin:0">' + esc(t.name || t.ods_code) + ' <span class="mute">' + esc(t.ods_code) + '</span></h2>' +
+      '<p style="margin:6px 0 0">Strain ' + pill(t.strain.score) + ' ' + esc(t.strain.label) + ' &nbsp; CQC ' + cqcPill(row.cqc_overall) + ' &nbsp; <span id="grp" class="mute"></span></p></div>' +
+      '<div class="ctl"><label class="mute">Switch trust <input list="tl" id="sw" placeholder="Name or code" onchange="switchTrust(this.value)"></label>' +
+      '<datalist id="tl">' + state.trusts.map(function (x) { return '<option value="' + esc(x.ods_code) + '">' + esc(x.name) + '</option>'; }).join('') + '</datalist>' +
+      '<label class="mute">Compare against <select id="scope" onchange="setScope(this.value)"><option value="peers">Same trust type</option><option value="national">All organisations</option></select></label></div></div></div>';
+    h += '<div class="card"><b>Fields</b> <span class="mute">core fields are shown by default; add or remove any measure</span>' +
+      '<div id="chips" style="margin:8px 0"></div>' +
+      '<input id="pq" placeholder="Search measures, e.g. waiting, backlog, CQC, workforce" oninput="drawPicker()" style="width:100%;max-width:520px"> ' +
+      '<button class="act" onclick="resetFields()">Reset to core</button> <button class="act" style="background:none;color:var(--accent)" onclick="clearFields()">Clear</button>' +
+      '<div id="picker" class="picker"></div></div>';
+    h += '<div id="bench"></div>';
     if (t.systems.length) {
       h += '<div class="card"><b>Installed systems (FHI)</b><table>' + t.systems.map(function (s) {
         return '<tr><td>' + esc(s.category) + '</td><td>' + esc(s.supplier) + '</td><td>' + esc(s.product) + '</td><td>' + esc(s.contract_end) + '</td></tr>';
       }).join('') + '</table></div>';
     }
-    var by = {};
-    t.metrics.forEach(function (m) { (by[m.source] = by[m.source] || []).push(m); });
-    Object.keys(by).forEach(function (src) {
-      h += '<div class="card"><b>' + esc(src.toUpperCase()) + '</b> <span class="mute">' + by[src].length + ' metrics</span><div class="wrap"><table><tr><th>Metric</th><th>Period</th><th class="n">Value</th><th class="n">Previous</th></tr>';
-      by[src].slice(0, 300).forEach(function (m) {
-        var chg = (m.previous_value != null && m.value != null) ? m.value - m.previous_value : null;
-        h += '<tr><td>' + esc(m.label || m.metric_code) + '</td><td>' + esc(m.period) + '</td><td class="n">' + (m.unit === 'rating' ? (CQC[m.value] || m.value) : num(m.value, 2)) + '</td><td class="n">' +
-          (m.previous_value == null ? '–' : (m.unit === 'rating' ? (CQC[m.previous_value] || m.previous_value) : num(m.previous_value, 2)) + ' <span class="mute">(' + esc(m.previous_period) + ')</span>') + '</td></tr>';
-      });
-      h += '</table></div></div>';
-    });
+    h += '<details class="card"><summary><b>All loaded values for this trust</b> <span class="mute">' + t.metrics.length + ' metrics, latest and previous</span></summary>' + fullTable(t) + '</details>';
     main(h);
+    document.getElementById('scope').value = state.scope;
+    drawChips(); drawPicker(); refreshBench();
   }).catch(fail);
+}
+function fullTable(t) {
+  var by = {}, h = '';
+  t.metrics.forEach(function (m) { (by[m.source] = by[m.source] || []).push(m); });
+  Object.keys(by).forEach(function (src) {
+    h += '<p><b>' + esc(src.toUpperCase()) + '</b> <span class="mute">' + by[src].length + ' metrics</span></p><div class="wrap"><table><tr><th>Metric</th><th>Period</th><th class="n">Value</th><th class="n">Previous</th></tr>';
+    by[src].slice(0, 300).forEach(function (m) {
+      h += '<tr><td>' + esc(m.label || m.metric_code) + '</td><td>' + esc(m.period) + '</td><td class="n">' + (m.unit === 'rating' ? (CQC[m.value] || m.value) : num(m.value, 2)) + '</td><td class="n">' +
+        (m.previous_value == null ? '–' : (m.unit === 'rating' ? (CQC[m.previous_value] || m.previous_value) : num(m.previous_value, 2)) + ' <span class="mute">(' + esc(m.previous_period) + ')</span>') + '</td></tr>';
+    });
+    h += '</table></div>';
+  });
+  return h;
+}
+function switchTrust(v) {
+  v = (v || '').trim().toLowerCase();
+  var hit = state.trusts.filter(function (x) { return x.ods_code.toLowerCase() === v || (x.name || '').toLowerCase() === v; })[0];
+  if (hit) { go('trust', hit.ods_code); }
+}
+function setScope(v) { state.scope = v; lsSet('fhi_scope', v); refreshBench(); }
+function setFields(list) { state.fields = list; lsSet('fhi_fields', list); drawChips(); drawPicker(); refreshBench(); }
+function resetFields() { setFields(state.coreCodes(cat)); }
+function clearFields() { setFields([]); }
+function toggleField(code, on) {
+  var f = state.fields.filter(function (c) { return c !== code; });
+  if (on) { f.push(code); }
+  setFields(f.slice(0, 60));
+}
+function drawChips() {
+  var by = {};
+  state.cat.forEach(function (c) { by[c.metric_code] = c; });
+  document.getElementById('chips').innerHTML = state.fields.map(function (c) {
+    var m = by[c];
+    return '<span class="chip">' + esc(m ? shortLabel(m.label) : c) + ' <a title="Remove" onclick="toggleField(\'' + esc(c) + '\',false)">×</a></span>';
+  }).join('') || '<span class="mute">No fields selected.</span>';
+}
+function shortLabel(l) { l = String(l || ''); return l.length > 60 ? l.slice(0, 58) + '…' : l; }
+function drawPicker() {
+  var q = (document.getElementById('pq').value || '').toLowerCase().trim();
+  var chosen = {};
+  state.fields.forEach(function (c) { chosen[c] = 1; });
+  var hits = state.cat.filter(function (c) {
+    return !q ? c.core : (c.label.toLowerCase().indexOf(q) >= 0 || c.metric_code.toLowerCase().indexOf(q) >= 0 || c.source_label.toLowerCase().indexOf(q) >= 0);
+  });
+  var h = '<p class="mute" style="margin:8px 0 4px">' + (q ? hits.length + ' matching measures' + (hits.length > 60 ? ' (first 60 shown)' : '') : 'Core fields. Search to find any of the ' + state.cat.length + ' comparable measures.') + '</p>';
+  var last = '';
+  hits.slice(0, 60).forEach(function (c) {
+    if (c.source_label !== last) { h += '<div class="gh">' + esc(c.source_label) + '</div>'; last = c.source_label; }
+    h += '<label class="pk"><input type="checkbox" ' + (chosen[c.metric_code] ? 'checked' : '') + ' onchange="toggleField(\'' + esc(c.metric_code) + '\',this.checked)"> ' +
+      esc(shortLabel(c.label)) + ' <span class="mute">· ' + c.orgs + ' orgs' + (c.polarity ? '' : ' · no direction') + '</span></label>';
+  });
+  document.getElementById('picker').innerHTML = h;
+}
+function refreshBench() {
+  var box = document.getElementById('bench');
+  if (!state.fields.length) { box.innerHTML = '<div class="card mute">Choose at least one field above.</div>'; return; }
+  box.innerHTML = '<div class="card mute">Loading…</div>';
+  var asked = state.current;
+  api('/api/benchmark/trust/' + enc(asked) + '?scope=' + state.scope + '&codes=' + enc(state.fields.join(','))).then(function (b) {
+    if (asked !== state.current) { return; }
+    var g = document.getElementById('grp');
+    if (g) { g.textContent = b.peer_group_label; }
+    var counts = {1: 0, 2: 0, 3: 0, 4: 0};
+    b.metrics.forEach(function (m) { if (m.quartile) { counts[m.quartile]++; } });
+    var total = counts[1] + counts[2] + counts[3] + counts[4];
+    var h = '<div class="card"><b>Where this trust sits</b> <span class="mute">' +
+      (state.scope === 'peers' ? 'against other ' + esc(b.peer_group_label.toLowerCase()) + ' where there are enough, otherwise nationally' : 'against all organisations with data') + '</span>';
+    if (total) {
+      h += '<div style="margin-top:8px">' + [1, 2, 3, 4].map(function (q) {
+        return '<span class="qchip" style="background:' + QCOL[q] + '">' + counts[q] + '</span> ' + QTXT[q] + ' &nbsp; ';
+      }).join('') + '<span class="mute">of ' + total + ' fields with a known good direction</span></div>';
+    }
+    h += '</div><div class="card" style="padding:0">';
+    b.metrics.forEach(function (m) { h += benchRow(m); });
+    box.innerHTML = h + '</div>';
+  }).catch(function (e) { box.innerHTML = '<div class="card dn">' + esc(e.message) + '</div>'; });
+}
+function benchRow(m) {
+  var pos = m.value == null
+    ? '<span class="mute">No value for this trust</span>'
+    : '<b>' + esc(fmt(m.value, m.unit)) + '</b> <span class="mute">' + esc(m.period) + '</span>';
+  var rk = m.rank == null ? '' : '<div><b>' + m.rank + '</b> of ' + m.n + ' <span class="mute">(' + (m.polarity ? 'best first' : 'highest first') + ')</span></div>' +
+    '<div class="mute">' + (m.polarity ? 'Better than ' : 'Above ') + num(m.better_than_pct, 0) + '% of ' + (m.scope_used === 'peers' ? 'peers' : 'organisations') + '</div>';
+  var vs = (m.vs_median == null || m.unit === 'rating' || m.unit === 'segment' || m.unit === 'flag') ? '' :
+    '<div class="mute">' + (m.vs_median > 0 ? '+' : '') + num(m.vs_median, Math.abs(m.vs_median) >= 100 ? 0 : 2) + ' vs median</div>';
+  var tag = m.quartile ? '<span class="qchip" style="background:' + QCOL[m.quartile] + '">' + QTXT[m.quartile] + '</span>' : '<span class="tag">no direction</span>';
+  return '<div class="mrow"><div class="ml"><div>' + esc(m.label) + '</div><div class="mute" style="font-size:12px">' + esc(m.source_label) + ' · ' + esc(dirText(m.polarity)) +
+    (m.scope_used === 'national' && state.scope === 'peers' ? ' · compared nationally (too few peers)' : '') +
+    ' · <a onclick="go(\'explorer\',\'' + esc(m.metric_code) + '\')">explore</a></div></div>' +
+    '<div class="mv">' + pos + '<div style="margin-top:4px">' + tag + '</div></div><div class="mk">' + rk + vs + '</div><div class="mc">' + rangeBar(m) + '</div></div>';
+}
+
+/* ---------- metric explorer ---------- */
+function explorerView(code) {
+  Promise.all([getCatalogue(), getTrusts()]).then(function (res) {
+    var cat = res[0];
+    if (code) { state.metric = code; }
+    if (!state.metric || !cat.some(function (c) { return c.metric_code === state.metric; })) {
+      var core = cat.filter(function (c) { return c.core; })[0] || cat[0];
+      state.metric = core ? core.metric_code : null;
+    }
+    if (state.hl == null) { state.hl = state.current || ''; }
+    if (state.egroup == null) { state.egroup = ''; }
+    var h = '<div class="card"><div class="ctl" style="flex-wrap:wrap">' +
+      '<label class="mute">Find a measure<br><input id="mq" placeholder="Search measures" oninput="drawMetricSelect()" style="width:240px"></label>' +
+      '<label class="mute">Measure<br><select id="msel" onchange="pickMetric(this.value)" style="max-width:420px"></select></label>' +
+      '<label class="mute">Show<br><select id="eg" onchange="state.egroup=this.value;drawExplorer()"><option value="">All organisations</option>' +
+      '<option value="acute">Acute trusts</option><option value="mhc">Mental health and community</option><option value="ambulance">Ambulance</option><option value="other">Other organisations</option></select></label>' +
+      '<label class="mute">Highlight a trust<br><input list="tl2" id="hl" placeholder="Name or code" onchange="setHl(this.value)"></label>' +
+      '<datalist id="tl2">' + state.trusts.map(function (x) { return '<option value="' + esc(x.ods_code) + '">' + esc(x.name) + '</option>'; }).join('') + '</datalist></div></div>' +
+      '<div id="ex"></div>';
+    main(h);
+    document.getElementById('eg').value = state.egroup;
+    var nm = state.trusts.filter(function (x) { return x.ods_code === state.hl; })[0];
+    document.getElementById('hl').value = nm ? nm.ods_code : '';
+    drawMetricSelect(); drawExplorer();
+  }).catch(fail);
+}
+function drawMetricSelect() {
+  var q = (document.getElementById('mq').value || '').toLowerCase().trim();
+  var hits = state.cat.filter(function (c) { return !q || c.label.toLowerCase().indexOf(q) >= 0 || c.metric_code.toLowerCase().indexOf(q) >= 0 || c.source_label.toLowerCase().indexOf(q) >= 0; });
+  if (!hits.some(function (c) { return c.metric_code === state.metric; })) {
+    var cur = state.cat.filter(function (c) { return c.metric_code === state.metric; })[0];
+    if (cur) { hits = [cur].concat(hits); }
+  }
+  var h = '', last = null;
+  hits.slice(0, 300).forEach(function (c) {
+    if (c.source_label !== last) { h += (last === null ? '' : '</optgroup>') + '<optgroup label="' + esc(c.source_label) + '">'; last = c.source_label; }
+    h += '<option value="' + esc(c.metric_code) + '"' + (c.metric_code === state.metric ? ' selected' : '') + '>' + esc(shortLabel(c.label)) + ' (' + c.orgs + ')</option>';
+  });
+  document.getElementById('msel').innerHTML = h + (last === null ? '' : '</optgroup>');
+}
+function pickMetric(v) { state.metric = v; drawExplorer(); }
+function setHl(v) {
+  v = (v || '').trim().toLowerCase();
+  var hit = state.trusts.filter(function (x) { return x.ods_code.toLowerCase() === v || (x.name || '').toLowerCase() === v; })[0];
+  state.hl = hit ? hit.ods_code : '';
+  drawExplorer();
+}
+function drawExplorer() {
+  var box = document.getElementById('ex');
+  box.innerHTML = '<div class="card mute">Loading…</div>';
+  var asked = state.metric + '|' + state.egroup;
+  api('/api/benchmark/metric?code=' + enc(state.metric) + (state.egroup ? '&group=' + state.egroup : '')).then(function (v) {
+    if (asked !== state.metric + '|' + state.egroup) { return; }
+    state.view = v;
+    var s = v.stats, mine = v.points.filter(function (p) { return p.ods_code === state.hl; })[0];
+    var h = '<div class="card"><h3 style="margin:0">' + esc(v.label) + '</h3><p class="mute" style="margin:4px 0 8px">' + esc(v.source_label) + ' · ' + esc(dirText(v.polarity)) + ' · ' +
+      s.n + ' organisations' + (v.group ? ' (' + esc(v.groups[v.group]) + ')' : '') + '</p>';
+    h += '<div class="grid" style="margin-bottom:10px">' + [['Lowest', s.min], ['Lower quartile', s.p25], ['Median', s.median], ['Mean', s.mean], ['Upper quartile', s.p75], ['Highest', s.max]].map(function (x) {
+      return '<div><div class="mute" style="font-size:12px">' + x[0] + '</div><b>' + esc(fmt(x[1], v.unit)) + '</b></div>';
+    }).join('') + '</div>';
+    if (mine) {
+      var r = rankOf(v.points, mine.value, v.polarity);
+      h += '<div class="callout"><b>' + esc(mine.name || mine.ods_code) + '</b>: ' + esc(fmt(mine.value, v.unit)) + ' <span class="mute">(' + esc(mine.period) + ')</span> · rank <b>' + r.rank + '</b> of ' + r.n +
+        ' · ' + (v.polarity ? 'better than ' : 'above ') + num(r.beaten, 0) + '% of the others' + (v.polarity ? ' · <span class="qchip" style="background:' + QCOL[quartileOf(r.beaten)] + '">' + QTXT[quartileOf(r.beaten)] + '</span>' : '') +
+        ' · <a onclick="go(\'trust\',\'' + esc(mine.ods_code) + '\')">open dashboard</a></div>';
+    } else if (state.hl) {
+      h += '<div class="callout mute">No value for ' + esc(state.hl) + (v.group ? ' in this group.' : ' on this measure.') + '</div>';
+    }
+    h += (s.distinct <= 8 ? histogram(v, mine) : swarm(v, mine)) + '</div>';
+    h += '<div class="card"><input id="rq" placeholder="Filter the ranking by name or code" oninput="drawRanking()" style="width:100%;max-width:360px"><div id="rank" class="rankbox"></div></div>';
+    box.innerHTML = h;
+    var svg = box.querySelector('svg.chart');
+    if (svg) { svg.onclick = function (e) { var o = e.target.getAttribute && e.target.getAttribute('data-ods'); if (o) { state.hl = o; document.getElementById('hl').value = o; drawExplorer(); } }; }
+    drawRanking();
+  }).catch(function (e) { box.innerHTML = '<div class="card dn">' + esc(e.message) + '</div>'; });
+}
+/* Continuous measures: one dot per organisation, stacked so none overlap; the chosen trust is the large dot. */
+function swarm(v, mine) {
+  var s = v.stats, W = 1000, H = 240, pad = 24, cy = 108, r = 4.5, step = 2 * r + 0.5;
+  var x = function (val) { return pad + (W - 2 * pad) * (val - s.min) / ((s.max - s.min) || 1); };
+  var order = v.points.slice().sort(function (a, b) { return a.value - b.value; });
+  var slots = [0], last = {}, i;
+  for (i = 1; i <= 11; i++) { slots.push(i, -i); }
+  var dots = '';
+  order.forEach(function (p) {
+    var px = x(p.value), k = null, j;
+    for (j = 0; j < slots.length; j++) { if (last[slots[j]] === undefined || px - last[slots[j]] >= step) { k = slots[j]; break; } }
+    if (k === null) { k = slots[0]; slots.forEach(function (sl) { if ((last[sl] || -1e9) < (last[k] || -1e9)) { k = sl; } }); }
+    last[k] = px;
+    var isMine = p.ods_code === state.hl;
+    if (!isMine) { dots += '<circle data-ods="' + esc(p.ods_code) + '" cx="' + px.toFixed(1) + '" cy="' + (cy + k * step).toFixed(1) + '" r="' + r + '" fill="var(--dot)" fill-opacity=".75"><title>' + esc((p.name || p.ods_code) + ': ' + fmt(p.value, v.unit)) + '</title></circle>'; }
+    else { p._cy = cy + k * step; }
+  });
+  var h = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Distribution of ' + esc(v.label) + ' across organisations">';
+  h += '<rect x="' + x(s.p25) + '" y="6" width="' + Math.max(3, x(s.p75) - x(s.p25)) + '" height="' + (H - 40) + '" fill="var(--band)" opacity=".55"/>';
+  h += '<line x1="' + x(s.median) + '" x2="' + x(s.median) + '" y1="6" y2="' + (H - 34) + '" stroke="var(--mute)" stroke-dasharray="4 3"/>';
+  h += dots;
+  if (mine) {
+    var mx = x(mine.value), my = mine._cy === undefined ? cy : mine._cy, anchor = mx > W * 0.7 ? 'end' : mx < W * 0.3 ? 'start' : 'middle';
+    h += '<circle cx="' + mx + '" cy="' + my + '" r="9" fill="var(--accent)" stroke="var(--card)" stroke-width="3"><title>' + esc((mine.name || mine.ods_code) + ': ' + fmt(mine.value, v.unit)) + '</title></circle>';
+    h += '<text x="' + mx + '" y="' + Math.max(16, my - 16) + '" text-anchor="' + anchor + '" class="lbl">' + esc(mine.name || mine.ods_code) + '</text>';
+  }
+  h += '<text x="' + pad + '" y="' + (H - 12) + '" class="ax">' + esc(fmt(s.min, v.unit)) + '</text>';
+  h += '<text x="' + (W - pad) + '" y="' + (H - 12) + '" class="ax" text-anchor="end">' + esc(fmt(s.max, v.unit)) + '</text>';
+  h += '<text x="' + x(s.median) + '" y="' + (H - 12) + '" class="ax" text-anchor="middle">median ' + esc(fmt(s.median, v.unit)) + '</text>';
+  if (v.polarity) { h += '<text x="' + (v.polarity === 'higher' ? W - pad : pad) + '" y="' + (H - 28) + '" class="ax" text-anchor="' + (v.polarity === 'higher' ? 'end' : 'start') + '">' + (v.polarity === 'higher' ? 'better →' : '← better') + '</text>'; }
+  return h + '</svg><p class="mute" style="margin:4px 0 0;font-size:12px">Each dot is one organisation; shaded band is the middle half; click a dot to highlight it.</p>';
+}
+/* Few distinct values (segments, ratings, flags): count bars, the chosen trust's bar in the accent colour. */
+function histogram(v, mine) {
+  var counts = {}, keys = [];
+  v.points.forEach(function (p) { if (counts[p.value] === undefined) { counts[p.value] = 0; keys.push(p.value); } counts[p.value]++; });
+  keys.sort(function (a, b) { return a - b; });
+  var W = 1000, H = 240, pad = 30, bw = Math.min(140, (W - 2 * pad) / keys.length - 12), max = Math.max.apply(null, keys.map(function (k) { return counts[k]; }));
+  var h = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Count of organisations at each value of ' + esc(v.label) + '">';
+  keys.forEach(function (k, i) {
+    var bh = (H - 70) * counts[k] / max, bx = pad + i * ((W - 2 * pad) / keys.length) + ((W - 2 * pad) / keys.length - bw) / 2, isMine = mine && mine.value === k;
+    h += '<rect x="' + bx + '" y="' + (H - 40 - bh) + '" width="' + bw + '" height="' + bh + '" rx="4" fill="' + (isMine ? 'var(--accent)' : 'var(--dot)') + '"/>';
+    h += '<text x="' + (bx + bw / 2) + '" y="' + (H - 44 - bh) + '" text-anchor="middle" class="lbl">' + counts[k] + '</text>';
+    h += '<text x="' + (bx + bw / 2) + '" y="' + (H - 22) + '" text-anchor="middle" class="ax">' + esc(fmt(k, v.unit)) + '</text>' +
+      (isMine ? '<text x="' + (bx + bw / 2) + '" y="' + (H - 6) + '" text-anchor="middle" class="lbl">▲ ' + esc((mine.name || mine.ods_code).slice(0, 34)) + '</text>' : '');
+  });
+  return h + '</svg>';
+}
+function drawRanking() {
+  var v = state.view, q = (document.getElementById('rq').value || '').toLowerCase();
+  var rows = '', shown = 0, topv = Math.max.apply(null, v.points.map(function (p) { return Math.abs(p.value); })) || 1;
+  var rank = 0, prev = null, seen = 0;
+  v.points.forEach(function (p) {
+    seen++;
+    if (prev === null || p.value !== prev) { rank = seen; prev = p.value; }
+    if (q && (p.name || '').toLowerCase().indexOf(q) < 0 && p.ods_code.toLowerCase().indexOf(q) < 0) { return; }
+    if (shown++ >= 600) { return; }
+    var mineRow = p.ods_code === state.hl;
+    rows += '<tr' + (mineRow ? ' class="me" id="merow"' : '') + '><td class="n">' + rank + '</td><td><a onclick="go(\'trust\',\'' + esc(p.ods_code) + '\')">' + esc(p.name || p.ods_code) + '</a> <span class="mute">' + esc(p.ods_code) + '</span></td>' +
+      '<td><span class="tag">' + esc(v.groups[p.group]) + '</span></td><td class="n">' + esc(fmt(p.value, v.unit)) + '</td>' +
+      '<td style="width:26%"><div class="bar" style="width:' + Math.max(1, Math.round(100 * Math.abs(p.value) / topv)) + '%;background:' + (mineRow ? 'var(--accent)' : 'var(--dot)') + '"></div></td></tr>';
+  });
+  var box = document.getElementById('rank');
+  box.innerHTML = '<table><tr><th class="n">Rank</th><th>Organisation</th><th>Type</th><th class="n">Value</th><th></th></tr>' + rows + '</table>';
+  var me = document.getElementById('merow');
+  if (me && !q) { box.scrollTop = Math.max(0, me.offsetTop - 120); }
 }
 
 function compareView() {
