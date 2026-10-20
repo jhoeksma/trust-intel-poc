@@ -26,6 +26,7 @@ class SourceSpec:
     loader: str = "generic"  # generic | rtt
     default_period: str | None = None
     licence: str = "Open Government Licence v3.0 (confirm on each publication page)"
+    snapshot: bool = False  # every file is a full snapshot: a new file replaces earlier rows with the same (org, metric, period)
     note: str = ""
 
 
@@ -114,6 +115,20 @@ SOURCES: dict[str, SourceSpec] = {
             link_text_re=r"(?i)provider level analysis",
             seed_urls=("https://files.digital.nhs.uk/3C/145B13/hosp-epis-stat-admi-pla-2024-25.csv",),
             note="Counts episodes, not patients. Publisher notes a data error at RMC (Bolton) in 2024-25.",
+        ),
+        SourceSpec(
+            key="cqc",
+            name="CQC latest ratings: provider-level quality ratings",
+            owner="Care Quality Commission",
+            cadence="Monthly",
+            index_urls=("https://www.cqc.org.uk/about-us/transparency/using-cqc-data",),
+            link_href_re=r"(?i)Latest_ratings\.ods$",
+            seed_urls=("https://www.cqc.org.uk/system/files/2026-10/01_October_2026_Latest_ratings.ods",),
+            loader="cqc",
+            snapshot=True,
+            licence="Open Government Licence v3.0; acknowledge CQC as the data source",
+            note="Ratings stored 1 Inadequate to 4 Outstanding. Most NHS providers carry no ODS code in the file, so they are matched by name "
+            "(flagged name_match); fixes go in data/reference/cqc_overrides.csv. Load after the other sources.",
         ),
     ]
 }

@@ -15,6 +15,9 @@ Raw questions keep ERIC codes in lower case (`eric_site:s03_10` = cost to eradic
 ## NOF metrics (`nof:*`)
 `nof:of0xxx` underlying measures (unit in `unit`); `nof:of2xxx` metric scores; `nof:of4200..4209` domain scores and `of4300..4309` domain segments; `nof:of5200` adjusted segment (1 best, 4 worst); `of5203` unadjusted segment; `of5202` average metric score; `of5204` financial override flag. A `:rank` suffix is the trust's rank among its trust type for that metric (rank direction follows the publisher: check before comparing across metrics). `nof:league_rank`, `league_score_low/high` and `league_rank_low/high` come from the league tables. All periods are the publication quarter; the metric's own reporting window is in the label.
 
+## CQC metrics (`cqc:*`)
+Stored as numbers, unit `rating`: 1 Inadequate, 2 Requires improvement, 3 Good, 4 Outstanding. `cqc:overall`, `cqc:safe`, `cqc:effective`, `cqc:caring`, `cqc:responsive`, `cqc:well_led`, `cqc:use_of_resources`, `cqc:combined_quality`. Period = month the rating was published (may be years old). `quality_flag` is `name_match` when the CQC provider was matched to the ODS code by name, `multiple_ratings` when CQC published conflicting ratings on the same day (lowest taken). `cqc:core_services_rated`, `cqc:core_services_below_good`, `cqc:core_services_below_good_pct` count core services (maternity, urgent care ...) at the file's snapshot month.
+
 ## Derived metrics
 | Code | Definition |
 |---|---|

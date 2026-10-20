@@ -47,6 +47,13 @@ def _store(db: Session, spec: SourceSpec, sf: SourceFile, res: LoadResult) -> No
             if org_type and not org.org_type:
                 org.org_type = org_type
     db.flush()
+    if spec.snapshot and res.metrics:
+        # a snapshot repeats unchanged facts every release; keep one row per (org, metric, period), the newest file's
+        fresh = {(m["ods_code"], m["metric_code"], m["period"]) for m in res.metrics}
+        stale = [i for i, o, c, p in db.execute(select(Metric.id, Metric.ods_code, Metric.metric_code, Metric.period).where(
+            Metric.source_key == spec.key, Metric.source_file_id != sf.id)) if (o, c, p) in fresh]
+        for i in range(0, len(stale), CHUNK):
+            db.execute(delete(Metric).where(Metric.id.in_(stale[i:i + CHUNK])))
     rows = [dict(m, source_file_id=sf.id) for m in res.metrics]
     for i in range(0, len(rows), CHUNK):
         db.execute(insert(Metric), rows[i:i + CHUNK])

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 - 2026-10-20
+- New source `cqc`: CQC "Latest ratings" workbook (monthly .ods, OGL v3; CQC acknowledged as source). Provider-level overall rating, the five key questions, Use of Resources and combined quality rating, plus counts of core services rated below Good. Discovered automatically from CQC's "Using CQC data" page (reachable from Railway); seed URL is the October 2026 file.
+- Ratings stored 1 Inadequate, 2 Requires improvement, 3 Good, 4 Outstanding; "Not rated" is not stored. A rating's period is its publication month, which can be years old. Trusts under CQC's new approach record the overall rating as Well-led / Overall; the more recently published of old and new wins.
+- Only about 30 of 200 NHS providers carry an ODS code in the file, so the rest are matched by normalised name against known organisations (unique matches only, `quality_flag = name_match`). Unmatched providers are listed in the file profile; manual fixes go in `data/reference/cqc_overrides.csv`.
+- New `app/sources/ods.py`: standard-library streaming reader for .ods (the workbook is 27MB, 327k location rows).
+- `SourceSpec.snapshot`: a snapshot source keeps one row per (org, metric, period) across monthly files, so unchanged ratings are not duplicated.
+- Dashboard: CQC rating column; trust page shows rating names. Scripts: `review.py` (completeness and coherence checks), `probe_urls.py`, `profile_file.py`, `explore_cqc*.py` (diagnostics).
+- 47 tests.
+
 ## Notes - 2026-10-20
 - Strain score scale and v0 limits documented in `docs/STRAIN_SCORE.md`; v1 parked (D-025).
 

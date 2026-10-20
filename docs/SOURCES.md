@@ -10,6 +10,7 @@ All public, Open Government Licence v3.0 unless a publication page says otherwis
 | eric | Estates Returns Information Collection, trust data | NHS England | Annual | generic (wide) | 2024/25 published October 2025. Some fields flagged unreliable by publisher. |
 | eric_site | ERIC site-level return 2025/26, rolled up to trust | NHS England | Annual | eric_site | Committed file (file:// seed); override with SEED_URLS_ERIC_SITE. Holds the backlog, energy and estates cost fields the trust-level file lacks. |
 | hes | Hospital Episode Statistics, admitted patient care, provider level | NHS England | Annual | generic | Counts episodes, not patients. Publisher notes a data error at RMC (Bolton) in 2024-25. |
+| cqc | CQC latest ratings (provider level), monthly | Care Quality Commission | Monthly | cqc | Discovered from cqc.org.uk/about-us/transparency/using-cqc-data; OGL v3, acknowledge CQC. Matched to ODS by code then name; see D-027. ICBs are not rated. |
 
 Plus the FHI trust ODS code list (Jon, project files, 20 October 2026): the reference spine for organisation names and codes.
 

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Metric, Org, TrustSystem
 
+CQC_NAMES = {1: "Inadequate", 2: "Requires improvement", 3: "Good", 4: "Outstanding"}
 SEGMENT_CODE = "nof:of5200"  # NOF "Adjusted segment" (OF5200); OF5203 is the unadjusted one
 
 
@@ -60,7 +61,7 @@ def trust_list(db: Session) -> list[dict]:
     if not orgs:
         return []
     # one query for latest value of the few headline metrics, not a per-trust loop
-    heads = {"rtt:pct_within_18_weeks": "rtt_pct_18w", "rtt:incomplete_pathways_total": "rtt_waiting"}
+    heads = {"rtt:pct_within_18_weeks": "rtt_pct_18w", "rtt:incomplete_pathways_total": "rtt_waiting", "cqc:overall": "cqc_overall"}
     latest = {}
     sub = (select(Metric.ods_code, Metric.metric_code, func.max(Metric.period_sort).label("ps"))
            .where(Metric.metric_code.in_(list(heads))).group_by(Metric.ods_code, Metric.metric_code).subquery())
@@ -82,6 +83,8 @@ def trust_list(db: Session) -> list[dict]:
         out.append({
             "ods_code": o.ods_code, "name": o.name, "org_type": o.org_type,
             "strain": s["score"], "strain_label": s["label"],
+            "cqc_overall": latest.get((o.ods_code, "cqc:overall")),
+            "cqc_rating": CQC_NAMES.get(int(latest[(o.ods_code, "cqc:overall")])) if latest.get((o.ods_code, "cqc:overall")) else None,
             "rtt_pct_18w": latest.get((o.ods_code, "rtt:pct_within_18_weeks")),
             "rtt_waiting": latest.get((o.ods_code, "rtt:incomplete_pathways_total")),
             "suppliers": sorted(x for x in suppliers.get(o.ods_code, set()) if x),

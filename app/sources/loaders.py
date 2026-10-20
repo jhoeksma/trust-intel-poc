@@ -472,6 +472,9 @@ def get_loader(name: str):
     if name == "eric_site":
         from app.sources.eric_site import load_eric_site
         return load_eric_site
+    if name == "cqc":
+        from app.sources.cqc import load_cqc
+        return load_cqc
     if name == "nof":
         from app.sources.nof import load_nof
         return load_nof

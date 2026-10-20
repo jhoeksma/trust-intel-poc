@@ -25,6 +25,7 @@ button.act{font:inherit;padding:6px 12px;border-radius:6px;border:1px solid var(
 .mute{color:var(--mute)}.tag{font-size:12px;border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-right:4px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
 a{color:var(--accent);cursor:pointer}pre{white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto;background:var(--bg);padding:8px;border-radius:6px}
+.c1{background:var(--s5)}.c2{background:var(--s4)}.c3{background:var(--s2)}.c4{background:var(--s1)}
 .up{color:var(--s1)}.dn{color:var(--s5)}
 </style>
 </head>
@@ -44,6 +45,8 @@ function api(path, opts) {
 }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]; }); }
 function num(v, d) { return v == null ? '–' : Number(v).toLocaleString('en-GB', {maximumFractionDigits: d == null ? 1 : d}); }
+var CQC = {1: 'Inadequate', 2: 'Requires improvement', 3: 'Good', 4: 'Outstanding'};
+function cqcPill(v) { return v ? '<span class="pill c' + v + '" style="min-width:0" title="CQC overall rating">' + CQC[v] + '</span>' : '<span class="mute">–</span>'; }
 function pill(s) { return '<span class="pill s' + (s || 0) + '" title="Strain 1 (low) to 5 (high)">' + (s || '–') + '</span>'; }
 
 function nav() {
@@ -84,10 +87,10 @@ function drawDashboard() {
     state.trusts.length + ' organisations loaded.</p></div>';
   h += '<div class="card"><input id="flt" placeholder="Filter by name, code or supplier" value="' + esc(state.filter) + '" oninput="state.filter=this.value;drawDashboard();document.getElementById(\'flt\').focus()">';
   h += '<div class="wrap"><table><tr>' +
-    [['name', 'Trust'], ['ods_code', 'Code'], ['strain', 'Strain'], ['rtt_pct_18w', 'RTT within 18w %'], ['rtt_waiting', 'RTT waiting list'], ['suppliers', 'Suppliers']]
+    [['name', 'Trust'], ['ods_code', 'Code'], ['strain', 'Strain'], ['cqc_overall', 'CQC'], ['rtt_pct_18w', 'RTT within 18w %'], ['rtt_waiting', 'RTT waiting list'], ['suppliers', 'Suppliers']]
       .map(function (c) { return '<th class="' + (c[0].indexOf('rtt') === 0 ? 'n' : '') + '" onclick="sortBy(\'' + c[0] + '\')">' + c[1] + '</th>'; }).join('') + '<th></th></tr>';
   rows.slice(0, 400).forEach(function (t) {
-    h += '<tr><td><a onclick="go(\'trust\',\'' + t.ods_code + '\')">' + esc(t.name || t.ods_code) + '</a></td><td>' + esc(t.ods_code) + '</td><td>' + pill(t.strain) + '</td>' +
+    h += '<tr><td><a onclick="go(\'trust\',\'' + t.ods_code + '\')">' + esc(t.name || t.ods_code) + '</a></td><td>' + esc(t.ods_code) + '</td><td>' + pill(t.strain) + '</td><td>' + cqcPill(t.cqc_overall) + '</td>' +
       '<td class="n">' + num(t.rtt_pct_18w) + '</td><td class="n">' + num(t.rtt_waiting, 0) + '</td><td>' +
       t.suppliers.map(function (s) { return '<span class="tag">' + esc(s) + '</span>'; }).join('') + '</td>' +
       '<td><input type="checkbox" ' + (state.cmp.indexOf(t.ods_code) >= 0 ? 'checked' : '') + ' onchange="toggleCmp(\'' + t.ods_code + '\',this.checked)" title="Add to compare"></td></tr>';
@@ -120,8 +123,8 @@ function trustView(code) {
       h += '<div class="card"><b>' + esc(src.toUpperCase()) + '</b> <span class="mute">' + by[src].length + ' metrics</span><div class="wrap"><table><tr><th>Metric</th><th>Period</th><th class="n">Value</th><th class="n">Previous</th></tr>';
       by[src].slice(0, 300).forEach(function (m) {
         var chg = (m.previous_value != null && m.value != null) ? m.value - m.previous_value : null;
-        h += '<tr><td>' + esc(m.label || m.metric_code) + '</td><td>' + esc(m.period) + '</td><td class="n">' + num(m.value, 2) + '</td><td class="n">' +
-          (m.previous_value == null ? '–' : num(m.previous_value, 2) + ' <span class="mute">(' + esc(m.previous_period) + ')</span>') + '</td></tr>';
+        h += '<tr><td>' + esc(m.label || m.metric_code) + '</td><td>' + esc(m.period) + '</td><td class="n">' + (m.unit === 'rating' ? (CQC[m.value] || m.value) : num(m.value, 2)) + '</td><td class="n">' +
+          (m.previous_value == null ? '–' : (m.unit === 'rating' ? (CQC[m.previous_value] || m.previous_value) : num(m.previous_value, 2)) + ' <span class="mute">(' + esc(m.previous_period) + ')</span>') + '</td></tr>';
       });
       h += '</table></div></div>';
     });
