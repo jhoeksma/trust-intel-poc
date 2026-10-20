@@ -246,3 +246,24 @@ def test_trend_series_against_group(bench, db):
     assert bench.get("/api/benchmark/trust/R11/trend?code=rtt:pct_within_18_weeks&scope=x").status_code == 422
     cat = {r["metric_code"]: r for r in bench.get("/api/benchmark/metrics").json()}
     assert cat["rtt:pct_within_18_weeks"]["periods"] == 2 and cat["nof:of5200"]["periods"] == 1
+
+
+def test_metric_trend_group_series(subs, db):
+    from app.benchmark import _cache
+    sf = db.query(SourceFile).first()
+    for i in range(12):  # an earlier month; R05 did not report it
+        if i != 5:
+            db.add(Metric(ods_code=f"R{i:02d}", source_key="rtt", metric_code="rtt:pct_within_18_weeks", metric_label="18w", period="2026-07",
+                          period_sort=202607, period_type="month", value=40.0 + i, unit="pct", source_file_id=sf.id))
+    db.commit()
+    _cache.clear()
+    t = subs.get("/api/benchmark/metric/trend?code=rtt:pct_within_18_weeks&subtype=acute_teaching").json()
+    assert [p["period"] for p in t["periods"]] == ["2026-07", "2026-08"]
+    assert t["periods"][0]["n"] == 5 and t["periods"][1]["n"] == 6  # R05 missing in July
+    assert len(t["series"]) == 6
+    r05 = next(s for s in t["series"] if s["ods_code"] == "R05")
+    assert r05["values"] == [None, 55.0]
+    assert t["periods"][1]["median"] == 52.5
+    assert subs.get("/api/benchmark/metric/trend?code=rtt:pct_within_18_weeks&months=1").json()["periods_shown"] == 1
+    assert subs.get("/api/benchmark/metric/trend?code=nope").status_code == 404
+    assert subs.get("/api/benchmark/metric/trend?code=rtt:pct_within_18_weeks&subtype=x").status_code == 422

@@ -48,7 +48,7 @@ tr.me td{background:var(--bg);font-weight:600}
 <nav id="nav"></nav><span class="mute" style="margin-left:auto">Internal spike. Public NHS data joined by ODS code.</span></header>
 <main id="main"></main>
 <script>
-var state = {tab: 'dashboard', trusts: [], sort: 'strain', dir: -1, filter: '', cmp: [], fields: null, scope: null, cat: null, gopts: null, typeFilter: ''};
+var state = {tab: 'dashboard', trusts: [], sort: 'strain', dir: -1, filter: '', cmp: [], fields: null, scope: null, cat: null, gopts: null, typeFilter: '', eview: 'snapshot', emonths: 24};
 var TABS = [['dashboard', 'Dashboard'], ['trust', 'Trust dashboard'], ['explorer', 'Explorer'], ['compare', 'Compare'], ['sources', 'Sources']];
 
 function api(path, opts) {
@@ -399,11 +399,14 @@ function explorerView(code) {
       '<label class="mute">Measure<br><select id="msel" onchange="pickMetric(this.value)" style="max-width:420px"></select></label>' +
       '<label class="mute">Show<br><select id="eg" onchange="state.egroup=this.value;drawExplorer()">' + typeOptions(state.egroup) + '</select></label>' +
       '<label class="mute">Highlight a trust<br><input list="tl2" id="hl" placeholder="Name or code" onchange="setHl(this.value)"></label>' +
+      '<label class="mute">View<br><select id="ev" onchange="state.eview=this.value;drawExplorer()"><option value="snapshot">Snapshot: latest values</option><option value="trend">Trend over time</option></select></label>' +
+      '<label class="mute">Months<br><select id="em" onchange="state.emonths=+this.value;drawExplorer()"><option value="6">6</option><option value="12">12</option><option value="24">24</option></select></label>' +
       '<datalist id="tl2">' + state.trusts.map(function (x) { return '<option value="' + esc(x.ods_code) + '">' + esc(x.name) + '</option>'; }).join('') + '</datalist></div></div>' +
       '<div id="ex"></div>';
     main(h);
     var nm = state.trusts.filter(function (x) { return x.ods_code === state.hl; })[0];
     document.getElementById('hl').value = nm ? nm.ods_code : '';
+    document.getElementById('ev').value = state.eview; document.getElementById('em').value = String(state.emonths);
     drawMetricSelect(); drawExplorer();
   }).catch(fail);
 }
@@ -417,7 +420,7 @@ function drawMetricSelect() {
   var h = '', last = null;
   hits.slice(0, 300).forEach(function (c) {
     if (c.source_label !== last) { h += (last === null ? '' : '</optgroup>') + '<optgroup label="' + esc(c.source_label) + '">'; last = c.source_label; }
-    h += '<option value="' + esc(c.metric_code) + '"' + (c.metric_code === state.metric ? ' selected' : '') + '>' + esc(shortLabel(c.label)) + ' (' + c.orgs + ')</option>';
+    h += '<option value="' + esc(c.metric_code) + '"' + (c.metric_code === state.metric ? ' selected' : '') + '>' + esc(shortLabel(c.label)) + ' (' + c.orgs + ')' + (c.periods >= 3 ? ' ↗ ' + c.periods + ' periods' : '') + '</option>';
   });
   document.getElementById('msel').innerHTML = h + (last === null ? '' : '</optgroup>');
 }
@@ -429,6 +432,7 @@ function setHl(v) {
   drawExplorer();
 }
 function drawExplorer() {
+  if (state.eview === 'trend') { return drawExplorerTrend(); }
   var box = document.getElementById('ex');
   box.innerHTML = '<div class="card mute">Loading…</div>';
   var asked = state.metric + '|' + state.egroup;
@@ -458,6 +462,109 @@ function drawExplorer() {
     if (svg) { svg.onclick = function (e) { var o = e.target.getAttribute && e.target.getAttribute('data-ods'); if (o) { state.hl = o; document.getElementById('hl').value = o; drawExplorer(); } }; }
     drawRanking();
   }).catch(function (e) { box.innerHTML = '<div class="card dn">' + esc(e.message) + '</div>'; });
+}
+/* ---- explorer: trend of one measure across a group ---- */
+function drawExplorerTrend() {
+  var box = document.getElementById('ex');
+  var meta = state.cat.filter(function (c) { return c.metric_code === state.metric; })[0];
+  if (!meta || meta.periods < 3) {
+    box.innerHTML = '<div class="card">' + esc(meta ? meta.label : state.metric) + ' has ' + (meta ? meta.periods : 0) + ' period(s) loaded, so there is no trend yet. Measures marked ↗ in the list have history.</div>';
+    return;
+  }
+  box.innerHTML = '<div class="card mute">Loading…</div>';
+  var eg = state.egroup || '';
+  var q = eg.indexOf('g:') === 0 ? '&group=' + eg.slice(2) : eg.indexOf('s:') === 0 ? '&subtype=' + eg.slice(2) : '';
+  var asked = state.metric + '|' + eg + '|' + state.emonths;
+  api('/api/benchmark/metric/trend?code=' + enc(state.metric) + '&months=' + state.emonths + q).then(function (t) {
+    if (asked !== state.metric + '|' + (state.egroup || '') + '|' + state.emonths) { return; }
+    var who = t.subtype ? t.subtype_labels[t.subtype] : t.group ? t.groups[t.group] : 'all organisations';
+    var h = '<div class="card"><h3 style="margin:0">' + esc(t.label) + '</h3><p class="mute" style="margin:4px 0 8px">' + esc(t.source_label) + ' · ' + esc(dirText(t.polarity)) + ' · ' +
+      t.series.length + ' organisations (' + esc(who) + ') · ' + t.periods_shown + ' periods</p>' + groupTrendChart(t) + '</div>';
+    h += movers(t);
+    box.innerHTML = h;
+    var svg = box.querySelector('svg.chart');
+    if (svg) { svg.onclick = function (e) { var o = e.target.getAttribute && e.target.getAttribute('data-ods'); if (o) { state.hl = o; document.getElementById('hl').value = o; drawExplorer(); } }; }
+    box.querySelectorAll('a[data-pick]').forEach(function (a) { a.onclick = function () { state.hl = a.getAttribute('data-pick'); document.getElementById('hl').value = state.hl; drawExplorer(); }; });
+  }).catch(function (e) { box.innerHTML = '<div class="card dn">' + esc(e.message) + '</div>'; });
+}
+function groupTrendChart(t) {
+  var P = t.periods, n = P.length, W = 1000, H = 340, L = 64, R = 190, T = 16, B = 36;
+  if (n < 2) { return '<span class="mute">Not enough periods.</span>'; }
+  var mine = t.series.filter(function (s) { return s.ods_code === state.hl; })[0];
+  var lo = Infinity, hi = -Infinity;
+  P.forEach(function (p) { [p.p10, p.p90].forEach(function (v) { if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); });
+  if (mine) { mine.values.forEach(function (v) { if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }); }
+  if (!isFinite(lo)) { return '<span class="mute">No values.</span>'; }
+  var pad = (hi - lo) * 0.1 || 1; lo -= pad; hi += pad;
+  var x = function (i) { return L + (W - L - R) * i / (n - 1); };
+  var y = function (v) { return T + (H - T - B) * (1 - (v - lo) / (hi - lo)); };
+  var h = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(t.label) + ' over time"><defs><clipPath id="cp"><rect x="' + L + '" y="' + T + '" width="' + (W - L - R) + '" height="' + (H - T - B) + '"/></clipPath></defs>';
+  [0, 0.25, 0.5, 0.75, 1].forEach(function (f) {
+    var v = lo + (hi - lo) * f;
+    h += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="' + (L - 6) + '" y="' + (y(v) + 4) + '" class="ax" text-anchor="end">' + esc(fmt(v, t.unit)) + '</text>';
+  });
+  h += '<g clip-path="url(#cp)">';
+  var showLines = t.series.length <= 250;
+  if (showLines) {
+    t.series.forEach(function (s) {
+      if (mine && s.ods_code === mine.ods_code) { return; }
+      var d = '', on = false;
+      s.values.forEach(function (v, i) { if (v == null) { on = false; return; } d += (on ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(v).toFixed(1); on = true; });
+      if (d) { h += '<path d="' + d + '" data-ods="' + esc(s.ods_code) + '" fill="none" stroke="var(--dot)" stroke-opacity=".28" stroke-width="1.2" style="pointer-events:stroke"><title>' + esc(s.name || s.ods_code) + '</title></path>'; }
+    });
+  }
+  var band = function (a, b, op) {
+    var up = [], dn = [];
+    P.forEach(function (p, i) { if (p[a] != null && p[b] != null) { up.push(x(i) + ',' + y(p[b])); dn.unshift(x(i) + ',' + y(p[a])); } });
+    return up.length > 1 ? '<polygon points="' + up.concat(dn).join(' ') + '" fill="var(--band)" opacity="' + op + '"/>' : '';
+  };
+  h += band('p10', 'p90', 0.45) + band('p25', 'p75', 0.8);
+  var med = '';
+  P.forEach(function (p, i) { if (p.median != null) { med += (med ? 'L' : 'M') + x(i) + ',' + y(p.median); } });
+  h += '<path d="' + med + '" fill="none" stroke="var(--mute)" stroke-width="2.5" stroke-dasharray="6 4"/>';
+  if (mine) {
+    var d2 = '', on2 = false;
+    mine.values.forEach(function (v, i) { if (v == null) { on2 = false; return; } d2 += (on2 ? 'L' : 'M') + x(i) + ',' + y(v); on2 = true; });
+    h += '<path d="' + d2 + '" fill="none" stroke="var(--accent)" stroke-width="3.5"/>';
+    mine.values.forEach(function (v, i) {
+      if (v != null) { h += '<circle cx="' + x(i) + '" cy="' + y(v) + '" r="3.5" fill="var(--accent)" stroke="var(--card)" stroke-width="1.5"><title>' + esc(P[i].period + ': ' + fmt(v, t.unit) + (P[i].median != null ? ' · group median ' + fmt(P[i].median, t.unit) : '')) + '</title></circle>'; }
+    });
+  }
+  h += '</g>';
+  var lastI = n - 1;
+  if (P[lastI].median != null) { h += '<text x="' + (W - R + 8) + '" y="' + (y(P[lastI].median) + 4) + '" class="ax">median ' + esc(fmt(P[lastI].median, t.unit)) + '</text>'; }
+  if (mine) {
+    var lv = null; mine.values.forEach(function (v) { if (v != null) { lv = v; } });
+    if (lv != null) { h += '<text x="' + (W - R + 8) + '" y="' + (y(lv) - 6) + '" class="lbl">' + esc((mine.name || mine.ods_code).slice(0, 24)) + '</text><text x="' + (W - R + 8) + '" y="' + (y(lv) + 9) + '" class="lbl">' + esc(fmt(lv, t.unit)) + '</text>'; }
+  }
+  [0, Math.floor((n - 1) / 2), n - 1].forEach(function (i) {
+    h += '<text x="' + x(i) + '" y="' + (H - 10) + '" class="ax" text-anchor="' + (i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle') + '">' + esc(P[i].period) + '</text>';
+  });
+  return h + '</svg><p class="mute" style="margin:4px 0 0;font-size:12px">Dashed line: group median. Dark band: middle half; light band: 10th to 90th percentile.' +
+    (showLines ? ' Faint lines: each organisation (click one to highlight it); lines beyond the plotted range are clipped.' : ' Individual lines are hidden above 250 organisations: pick a type or subtype to see them.') +
+    (mine ? '' : ' Highlight a trust to draw its line.') + '</p>';
+}
+/* Largest movers between each organisation's first and last value in the window. */
+function movers(t) {
+  var rows = [];
+  t.series.forEach(function (s) {
+    var f = null, l = null;
+    s.values.forEach(function (v) { if (v != null) { if (f == null) { f = v; } l = v; } });
+    if (f != null && l != null && s.values.filter(function (v) { return v != null; }).length >= 3) { rows.push({s: s, f: f, l: l, d: l - f}); }
+  });
+  if (rows.length < 4) { return ''; }
+  var good = function (r) { return t.polarity === 'lower' ? -r.d : r.d; };
+  rows.sort(function (a, b) { return good(b) - good(a); });
+  var cols = function (list, title) {
+    return '<div><b>' + title + '</b><table>' + list.map(function (r) {
+      return '<tr><td><a data-pick="' + esc(r.s.ods_code) + '">' + esc(r.s.name || r.s.ods_code) + '</a></td><td class="n">' + esc(fmt(r.f, t.unit)) + ' → ' + esc(fmt(r.l, t.unit)) + '</td><td class="n"><b>' + (r.d > 0 ? '+' : '') + num(r.d, Math.abs(r.d) >= 100 ? 0 : 2) + '</b></td></tr>';
+    }).join('') + '</table></div>';
+  };
+  var pol = !!t.polarity;
+  return '<div class="card"><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr))">' +
+    cols(rows.slice(0, 8), pol ? 'Biggest improvers' : 'Largest rises') +
+    cols(rows.slice(-8).reverse(), pol ? (good(rows[rows.length - 1]) < 0 ? 'Biggest decliners' : 'Smallest improvements') : 'Largest falls') +
+    '</div><p class="mute" style="margin:8px 0 0;font-size:12px">Change between each organisation\'s first and last value in the window (organisations with at least three values).</p></div>';
 }
 /* Continuous measures: one dot per organisation, stacked so none overlap; the chosen trust is the large dot. */
 function swarm(v, mine) {

@@ -236,6 +236,36 @@ def metric_view(db: Session, code: str, group: str | None = None, subtype: str |
             "points": pts, "ranking": "best first" if pol else "highest first"}
 
 
+def metric_trend(db: Session, code: str, group: str | None = None, subtype: str | None = None, months: int = 24) -> dict | None:
+    """One measure over time for a whole group: per-period spread, plus every member's series.
+
+    Membership is by trust type/subtype only (not by having a value), so a series simply has gaps where an
+    organisation did not report that month. periods[i] and every series' values[i] line up.
+    """
+    meta = next((r for r in catalogue(db) if r["metric_code"] == code), None)
+    if meta is None:
+        return None
+    groups, subs = peer_groups(db), subtypes(db)
+    by_org: dict[str, dict[int, float]] = {}
+    labels: dict[int, str] = {}
+    for o, per, ps, v in db.execute(select(Metric.ods_code, Metric.period, Metric.period_sort, Metric.value)
+                                    .where(Metric.metric_code == code, Metric.value.is_not(None))):
+        if math.isnan(v) or (group and group_of(groups, o) != group) or (subtype and subs.get(o) != subtype):
+            continue
+        by_org.setdefault(o, {})[ps] = float(v)
+        labels[ps] = per
+    keep = sorted(labels)[-months:]
+    periods = []
+    for ps in keep:
+        st = stats([vals[ps] for vals in by_org.values() if ps in vals])
+        periods.append({"period": labels[ps], "period_sort": ps, **{k: st.get(k) for k in ("n", "p10", "p25", "median", "p75", "p90")}})
+    names = {o: n for o, n in db.execute(select(Org.ods_code, Org.name))}
+    series = [{"ods_code": o, "name": names.get(o), "values": [round(vals[ps], 4) if ps in vals else None for ps in keep]}
+              for o, vals in sorted(by_org.items()) if any(ps in vals for ps in keep)]
+    return {**meta, "group": group, "subtype": subtype, "groups": GROUP_LABELS, "subtype_labels": SUBTYPE_LABELS,
+            "periods_shown": len(keep), "periods": periods, "series": series}
+
+
 def choose_pool(national: dict, ods: str, groups: dict, subs: dict, scope: str):
     """(kind, label, {ods: value}): the narrowest requested group with at least MIN_PEERS values that includes `ods`."""
     mine_group, mine_sub = group_of(groups, ods), subs.get(ods)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0 - 2026-10-20
+
+- Explorer trend view: for any measure with three or more periods, choose "Trend over time" and 6/12/24 months. Shows the group median, middle half and 10th to 90th percentile band, a faint line per organisation, a highlighted trust, and lists of biggest movers either way (direction-aware where polarity is known). `GET /api/benchmark/metric/trend?code=&group=&subtype=&months=`.
+- Financial position trend is not yet available: held NOF finance measures have one period (Q1 2026/27). Needs earlier NOF quarters; see docs/DECISIONS.md D-037.
+- Tests: 63 passing.
+
 ## 0.9.0 - 2026-10-20
 
 - RTT history: the 23 monthly Full CSV extracts from September 2024 to July 2026 are seeded by URL (`RTT_HISTORY` in the source registry), giving 24 months with August 2026. The addresses carry hashed names, so they were read from NHS England's RTT pages (2024-25, 2025-26, 2026-27) through Chrome; revised files are used where NHS England published one. Railway downloads them at load time; none are committed.

@@ -111,6 +111,20 @@ def benchmark_metric(code: str, group: str | None = None, subtype: str | None = 
     return view
 
 
+@app.get("/api/benchmark/metric/trend", dependencies=[Depends(require_auth)])
+def benchmark_metric_trend(code: str, group: str | None = None, subtype: str | None = None, months: int = 24,
+                           db: Session = Depends(get_db)):
+    """One measure over time for a trust type or subtype: spread per period and every member's series."""
+    if group is not None and group not in benchmark.GROUP_LABELS:
+        raise HTTPException(422, "group must be one of " + ", ".join(benchmark.GROUP_LABELS))
+    if subtype is not None and subtype not in benchmark.SUBTYPE_LABELS:
+        raise HTTPException(422, "subtype must be one of " + ", ".join(benchmark.SUBTYPE_LABELS))
+    out = benchmark.metric_trend(db, code, group, subtype, max(1, min(months, 60)))
+    if out is None:
+        raise HTTPException(404, "Unknown or too sparse metric (needs at least 10 organisations)")
+    return out
+
+
 @app.get("/api/benchmark/trust/{ods}", dependencies=[Depends(require_auth)])
 def benchmark_trust(ods: str, codes: str = "", scope: str = "subtype", db: Session = Depends(get_db)):
     """Where one organisation sits on each chosen metric. No codes given means the core fields."""
