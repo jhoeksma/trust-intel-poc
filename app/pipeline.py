@@ -211,6 +211,10 @@ def run_report(db: Session) -> str:
     for code in ("eric_site:backlog_total", "eric_site:backlog_high_significant", "eric_site:s02_01", "eric_site:energy_cost_total"):
         v, n = db.execute(select(func.sum(Metric.value), func.count()).where(Metric.metric_code == code)).one()
         lines.append(f"{code}: sum {v}, {n} trusts")
+    from app.indicators import SEGMENT_CODE
+    seg = dict(db.execute(select(Metric.value, func.count(func.distinct(Metric.ods_code))).where(Metric.metric_code == SEGMENT_CODE).group_by(Metric.value)).all())
+    in_ref = db.scalar(select(func.count(func.distinct(Metric.ods_code))).where(Metric.metric_code == SEGMENT_CODE, Metric.ods_code.in_(list(ref))))
+    lines.append(f"strain (NOF adjusted segment): {sum(seg.values())} trusts, {in_ref} in the FHI reference list; segments {dict(sorted(seg.items()))}")
     dup = db.scalar(select(func.count()).select_from(
         select(Metric.ods_code, Metric.metric_code, Metric.period).group_by(Metric.ods_code, Metric.metric_code, Metric.period)
         .having(func.count() > 1).subquery()))
