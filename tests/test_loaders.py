@@ -53,3 +53,39 @@ def test_rtt_aggregation():
 def test_rtt_unexpected_columns_fall_back():
     r = load_rtt("rtt", "rtt.csv", csv("Org Code,Value", "RXX,1", "RYY,2", "RZZ,3"))
     assert r.mapper_status == "needs_review"
+
+
+WF_HDR = "DATA_MONTH,ORG_CODE,ORG_NAME,MAIN_STAFF_GROUP,STAFF_GROUP_1,FTE"
+
+
+def test_workforce_dimensions_are_summed_not_collapsed():
+    data = csv(WF_HDR,
+               "2026-07-31,RXX,Alpha,Nurses,A,10",
+               "2026-07-31,RXX,Alpha,Nurses,B,5.5",
+               "2026-07-31,RXX,Alpha,Doctors,C,4",
+               "2026-07-31,RYY,Beta,Nurses,A,7")
+    r = load_generic("workforce", "Core 8. NWD Staff Group - org, Jul-26.csv", data)
+    got = {(m["ods_code"], m["metric_code"]): m["value"] for m in r.metrics}
+    assert got[("RXX", "workforce:core_8:fte")] == 19.5
+    assert got[("RXX", "workforce:core_8:fte:nurses")] == 15.5
+    assert got[("RXX", "workforce:core_8:fte:doctors")] == 4
+    assert got[("RYY", "workforce:core_8:fte")] == 7
+    keys = [(m["ods_code"], m["metric_code"], m["period"]) for m in r.metrics]
+    assert len(keys) == len(set(keys))  # one value per org, metric, period
+    assert r.profile["breakdown_column"] == "MAIN_STAFF_GROUP"
+
+
+def test_url_encoded_file_name_still_gives_period():
+    data = csv("Trust Code,Trust Name,Energy cost", "RXX,Alpha,5", "RYY,Beta,6", "RZZ,Gamma,7")
+    r = load_generic("eric", "ERIC%20-%202024_25%20-%20Trust%20data.csv", data)
+    assert {m["period"] for m in r.metrics} == {"2024/25"}
+
+
+def test_long_file_counts_suppressed_values():
+    data = csv("ORG_CODE,ORG_DESCRIPTION,REPORTING_PERIOD,MEASURE_TYPE,MEASURE,MEASURE_VALUE",
+               "RXX,Alpha,2425,Summary,FAE_SUM,100",
+               "RYY,Beta,2425,Summary,FAE_SUM,*",
+               "RZZ,Gamma,2425,Summary,FAE_SUM,50")
+    r = load_generic("hes", "hosp-epis-stat-admi-pla-2024-25.csv", data)
+    assert r.profile["suppressed_values"] == 1 and len(r.metrics) == 2
+    assert "[Summary]" in r.metrics[0]["metric_label"]

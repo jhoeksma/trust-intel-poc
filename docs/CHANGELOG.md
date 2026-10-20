@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 - 2026-10-20
+Fixes from the first live load review (docs/REVIEW-2026-10-20-first-load.md):
+- Wide tables that repeat an organisation across dimension rows (workforce) are now summed to one value per organisation, period and metric, plus a breakdown by the main categorical column (e.g. staff group). Metric codes for multi-table releases carry the table (`workforce:core_8:fte`).
+- File names are URL-decoded before period detection (fixes ERIC period "unknown").
+- HES: suppressed values counted in the file profile; labels include the measure type.
+- `SEED_URLS_<SOURCE>` environment variable (comma separated) overrides discovery. Needed because NHS pages block our fetcher from Railway.
+- Discovery sends browser-like headers and reports pages that return no links.
+- `LOADER_VERSION` in each profile: a loader change forces unchanged files to reload.
+- Successor-code map (`data/reference/code_successors.csv`, RBZ to RH8 to verify); scorecards include history from predecessor codes.
+- 31 tests.
+
 ## Review - 2026-10-20
 - First live load reviewed: see docs/REVIEW-2026-10-20-first-load.md. No code changes.
 

@@ -6,6 +6,9 @@
 - **trust_systems**: FHI overlay: ods_code, category, supplier, product, contract_end, note. Proprietary.
 - **refresh_runs**: status, trigger, summary, log.
 
+## Metric codes
+`<source>:<column>` for single tables; `<source>:<table>:<column>` for multi-table releases (workforce `core_8`). Aggregated totals carry the label "(total)"; breakdowns add `:<value>` to the code, e.g. `workforce:core_8:fte:nurses_health_visitors`. Wide tables are summed across dimension rows; averages and rates must not be summed, so check the profile before relying on a column.
+
 ## Derived metrics
 | Code | Definition |
 |---|---|

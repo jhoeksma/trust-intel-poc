@@ -8,6 +8,7 @@ metrics (matched on source_key + file_name), never duplicates them.
 import logging
 import threading
 import traceback
+from urllib.parse import quote, unquote
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, insert, select
@@ -18,7 +19,7 @@ from app.models import Metric, Org, RefreshRun, SourceFile
 from app.reference import seed_orgs
 from app.sources import fetch
 from app.sources.discover import discover
-from app.sources.loaders import LOADERS, LoadResult
+from app.sources.loaders import LOADER_VERSION, LOADERS, LoadResult
 from app.sources.registry import SOURCES, SourceSpec
 
 log = logging.getLogger("pipeline")
@@ -32,7 +33,7 @@ def _now():
 
 def _store(db: Session, spec: SourceSpec, sf: SourceFile, res: LoadResult) -> None:
     old_ids = [r for (r,) in db.execute(
-        select(SourceFile.id).where(SourceFile.source_key == spec.key, SourceFile.file_name == sf.file_name, SourceFile.id != sf.id)
+        select(SourceFile.id).where(SourceFile.source_key == spec.key, SourceFile.file_name.in_({sf.file_name, quote(sf.file_name), unquote(sf.file_name)}), SourceFile.id != sf.id)
     )]
     if old_ids:
         db.execute(delete(Metric).where(Metric.source_file_id.in_(old_ids)))
@@ -59,7 +60,7 @@ def _store(db: Session, spec: SourceSpec, sf: SourceFile, res: LoadResult) -> No
 def _members(spec: SourceSpec, url: str, data: bytes) -> list[tuple[str, bytes]]:
     if spec.kind == "zip_csv" or url.lower().split("?")[0].endswith(".zip"):
         return fetch.csv_members(data)
-    return [(url.rsplit("/", 1)[-1], data)]
+    return [(unquote(url.rsplit("/", 1)[-1]), data)]
 
 
 def run_source(db: Session, key: str) -> dict:
@@ -96,9 +97,10 @@ def run_source(db: Session, key: str) -> dict:
             summary["failed"] += 1
             continue
         for name, blob in members:
-            prior = db.execute(select(SourceFile).where(
-                SourceFile.source_key == key, SourceFile.file_name == name,
-                SourceFile.sha256 == fetch.sha256(blob), SourceFile.status == "loaded")).first()
+            prior = [p for (p,) in db.execute(select(SourceFile.profile).where(
+                SourceFile.source_key == key, SourceFile.file_name.in_({name, quote(name)}),
+                SourceFile.sha256 == fetch.sha256(blob), SourceFile.status == "loaded"))
+                if (p or {}).get("loader_version") == LOADER_VERSION]
             if prior:
                 summary["unchanged"] += 1
                 continue

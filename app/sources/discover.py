@@ -1,4 +1,5 @@
 """Find the files to download for a source by reading its index pages."""
+import os
 import re
 from dataclasses import dataclass, field
 from urllib.parse import urljoin
@@ -27,7 +28,12 @@ class DiscoveryResult:
 
 
 def get_html(url: str) -> str:
-    resp = requests.get(url, headers={"User-Agent": settings.user_agent}, timeout=settings.http_timeout)
+    headers = {
+        "User-Agent": settings.user_agent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-GB,en;q=0.9",
+    }
+    resp = requests.get(url, headers=headers, timeout=settings.http_timeout)
     resp.raise_for_status()
     return resp.text
 
@@ -52,8 +58,19 @@ def _matches(spec: SourceSpec, href: str, text: str) -> bool:
     return True
 
 
+def override_urls(spec: SourceSpec) -> list[str]:
+    """Hand-supplied file URLs: env var SEED_URLS_<KEY>, comma separated. Wins over scraping."""
+    raw = os.getenv(f"SEED_URLS_{spec.key.upper()}", "")
+    return [u.strip() for u in raw.split(",") if u.strip().startswith("http")]
+
+
 def discover(spec: SourceSpec, fetch_html=get_html) -> DiscoveryResult:
     result = DiscoveryResult()
+    forced = override_urls(spec)
+    if forced:
+        result.notes.append(f"using {len(forced)} URL(s) from SEED_URLS_{spec.key.upper()}")
+        result.files = [DiscoveredFile(url=u, text="override", page_url="", via="override") for u in forced]
+        return result
     pages = list(spec.index_urls)
 
     if spec.child_href_re:
@@ -80,11 +97,14 @@ def discover(spec: SourceSpec, fetch_html=get_html) -> DiscoveryResult:
     seen = set()
     for page in pages:
         try:
-            links = extract_links(fetch_html(page), page)
+            html = fetch_html(page)
+            links = extract_links(html, page)
         except Exception as exc:  # noqa: BLE001
             result.notes.append(f"page failed: {page}: {exc}")
             continue
         result.links_seen.extend([f"{t} -> {h}" for h, t in links][:80])
+        if not links:
+            result.notes.append(f"page returned {len(html)} bytes with no links: {page}")
         for href, text in links:
             if href in seen or not _matches(spec, href, text):
                 continue

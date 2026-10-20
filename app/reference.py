@@ -15,11 +15,20 @@ from sqlalchemy.orm import Session
 from app.models import Org
 
 REF = Path(__file__).resolve().parent.parent / "data" / "reference" / "trusts_ods.csv"
+SUCCESSORS = REF.with_name("code_successors.csv")
 
 
 def load_reference(path: Path = REF) -> list[dict]:
     with open(path, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def load_successors(path: Path = SUCCESSORS) -> dict[str, str]:
+    """Old ODS code -> current code, for mergers. Hand-maintained; each row needs checking against ODS."""
+    if not path.exists():
+        return {}
+    with open(path, newline="", encoding="utf-8") as f:
+        return {r["old_code"]: r["current_code"] for r in csv.DictReader(f)}
 
 
 def seed_orgs(db: Session) -> int:
@@ -34,5 +43,9 @@ def seed_orgs(db: Session) -> int:
         else:
             o.name = r["name"]
             o.org_type = r["kind"] if o.org_type in (None, "") else o.org_type
+    for old, new in load_successors().items():
+        o = existing.get(old) or db.get(Org, old)
+        if o is not None:
+            o.current_code = new
     db.commit()
     return n

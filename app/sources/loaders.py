@@ -8,6 +8,7 @@ called for in the Phase 1 scope: read it at /api/sources after the first run and
 tighten the mappings where the guesses are wrong.
 """
 import codecs
+from urllib.parse import unquote
 import csv
 import io
 import re
@@ -16,6 +17,7 @@ from dataclasses import dataclass, field
 from app.config import settings
 from app.periods import Period, parse_period
 
+LOADER_VERSION = 2  # bump when loader output changes, so unchanged files are reloaded
 ODS_RE = re.compile(r"^[A-Z0-9]{3,5}$")
 UNKNOWN_PERIOD = Period("unknown", 0, "unknown")
 
@@ -166,6 +168,32 @@ def infer_org_type(file_name: str) -> str | None:
     return None
 
 
+_TABLE_RE = re.compile(r"(?i)^(core\s*\d+)")
+_DIM_SKIP = ("region", "ics", "date", "month", "level", "code", "name", "classification_code")
+
+
+def _table_prefix(source_key: str, file_name: str) -> str:
+    """Metric code prefix. Multi-table releases (workforce 'Core 8. ...') get the table in the code."""
+    m = _TABLE_RE.match(file_name.strip())
+    return f"{source_key}:{slug(m.group(1))}:" if m else f"{source_key}:"
+
+
+def _pick_breakdown(header, roles, rows, skip):
+    """The categorical column to break totals down by: low cardinality, preferring 'group' columns."""
+    best, best_rank = None, None
+    for i, h in enumerate(header):
+        s = slug(h)
+        if i in skip or i in roles.numeric or any(t in s for t in _DIM_SKIP):
+            continue
+        vals = {r[i].strip() for r in rows[:50000] if i < len(r) and r[i].strip()}
+        if not 2 <= len(vals) <= 15:
+            continue
+        rank = (0 if "group" in s else 1, len(vals))
+        if best_rank is None or rank < best_rank:
+            best, best_rank = i, rank
+    return best
+
+
 @dataclass
 class LoadResult:
     metrics: list = field(default_factory=list)
@@ -177,7 +205,7 @@ class LoadResult:
 
 
 def _file_period(file_name: str, default_period: str | None) -> Period:
-    return parse_period(file_name) or parse_period(default_period) or UNKNOWN_PERIOD
+    return parse_period(unquote(file_name)) or parse_period(default_period) or UNKNOWN_PERIOD
 
 
 def _metric(code, label, org, period: Period, value, source_key, unit=None):
@@ -223,7 +251,13 @@ def load_generic(source_key: str, file_name: str, data: bytes, default_period: s
     cap = settings.max_metric_rows_per_file
     period_cache: dict[str, Period] = {}
     periods_seen: set = set()
-    total = 0
+    all_rows = sample + list(rows)
+    prefix = _table_prefix(source_key, file_name)
+    skip_dims = {roles.org_code, roles.org_name, roles.period}
+    org_rows = [r[roles.org_code].strip() for r in all_rows if roles.org_code < len(r)]
+    repeats = len(org_rows) > 1.2 * max(1, len(set(org_rows)))  # organisations repeat across dimension rows
+    breakdown = _pick_breakdown(header, roles, all_rows, skip_dims) if roles.shape == "wide" and repeats else None
+    profile["breakdown_column"] = header[breakdown] if breakdown is not None else None
 
     def period_of(r):
         if roles.period is None or roles.period >= len(r):
@@ -233,21 +267,22 @@ def load_generic(source_key: str, file_name: str, data: bytes, default_period: s
             period_cache[raw] = parse_period(raw) or fperiod
         return period_cache[raw]
 
-    def all_rows():
-        yield from sample
-        yield from rows
-
-    for r in all_rows():
+    # wide tables repeat an organisation across dimension rows (staff group, role, area ...):
+    # additive measures are summed so each (org, period, metric) has exactly one value.
+    sums: dict = {}
+    dup_rows = 0
+    suppressed = 0
+    seen_keys: set = set()
+    measure_type_col = next((i for i, h in enumerate(header) if slug(h) == "measure_type"), None)
+    total = 0
+    for r in all_rows:
         total += 1
         if roles.org_code >= len(r):
             continue
         org = r[roles.org_code].strip()
         if not ODS_RE.match(org):
             continue
-        if roles.org_name is not None and roles.org_name < len(r):
-            result.orgs.setdefault(org, (r[roles.org_name].strip() or None, org_type))
-        else:
-            result.orgs.setdefault(org, (None, org_type))
+        result.orgs.setdefault(org, ((r[roles.org_name].strip() or None) if roles.org_name is not None and roles.org_name < len(r) else None, org_type))
         period = period_of(r)
         periods_seen.add(period.label)
 
@@ -256,30 +291,55 @@ def load_generic(source_key: str, file_name: str, data: bytes, default_period: s
             if not mid:
                 continue
             label = r[roles.metric_name].strip() if roles.metric_name is not None and roles.metric_name < len(r) else mid
-            code = f"{source_key}:{slug(mid)}"
-            val = to_float(r[roles.value]) if roles.value < len(r) else None
-            if val is not None:
-                result.metrics.append(_metric(code, label, org, period, val, source_key))
+            if measure_type_col is not None and measure_type_col < len(r) and r[measure_type_col].strip():
+                label = f"{label} [{r[measure_type_col].strip()}]"
+            code = f"{prefix}{slug(mid)}"
+            raw_val = r[roles.value] if roles.value < len(r) else None
+            val = to_float(raw_val)
+            if val is None:
+                if raw_val is not None and raw_val.strip() in ("*", "-", ".."):
+                    suppressed += 1
+                continue
+            key = (org, period.label, code)
+            if key in seen_keys:
+                dup_rows += 1
+            seen_keys.add(key)
+            result.metrics.append(_metric(code, label, org, period, val, source_key))
             if roles.score is not None and roles.score < len(r):
                 sc = to_float(r[roles.score])
                 if sc is not None:
                     result.metrics.append(_metric(code + ":score", f"{label} (score)", org, period, sc, source_key))
         else:
+            bval = r[breakdown].strip() if breakdown is not None and breakdown < len(r) else None
             for i in roles.numeric:
                 if i >= len(r):
                     continue
                 val = to_float(r[i])
-                if val is not None:
-                    result.metrics.append(_metric(f"{source_key}:{slug(header[i])}", header[i], org, period, val, source_key))
-        if len(result.metrics) >= cap:
+                if val is None:
+                    continue
+                col = slug(header[i])
+                tk = (org, period, f"{prefix}{col}", f"{header[i]} (total)")
+                sums[tk] = sums.get(tk, 0.0) + val
+                if bval:
+                    bk = (org, period, f"{prefix}{col}:{slug(bval)}", f"{header[i]}: {bval}")
+                    sums[bk] = sums.get(bk, 0.0) + val
+        if len(result.metrics) + len(sums) >= cap:
             result.truncated = True
             break
+
+    for (org, period, code, label), val in sums.items():
+        unit = "fte" if "fte" in code else None
+        result.metrics.append(_metric(code, label, org, period, round(val, 4), source_key, unit))
 
     result.row_count = total
     profile.update({
         "rows_read": total, "metrics_loaded": len(result.metrics), "orgs": len(result.orgs),
         "numeric_columns": len(roles.numeric), "periods": sorted(periods_seen)[:24], "truncated": result.truncated,
+        "suppressed_values": suppressed, "duplicate_keys_in_long_file": dup_rows,
+        "notes": ["wide table: additive measures summed per organisation" + (f" and by {header[breakdown]}" if breakdown is not None else "")]
+        if roles.shape == "wide" else [],
     })
+    profile["loader_version"] = LOADER_VERSION
     result.mapper_status = "generic" if result.metrics else "needs_review"
     return result
 
@@ -365,7 +425,7 @@ def load_rtt(source_key: str, file_name: str, data: bytes, default_period: str |
     result.profile = {
         "file": file_name, "encoding": enc, "columns": header, "shape": "rtt", "sample": sample,
         "rows_read": total_rows, "metrics_loaded": len(result.metrics), "orgs": len(result.orgs),
-        "periods": sorted({p.label for (_, p) in agg})[:24],
+        "periods": sorted({p.label for (_, p) in agg})[:24], "loader_version": LOADER_VERSION,
         "notes": ["Incomplete pathways (Part_2), all specialties (C_999), summed across commissioners. "
                   "pct_within_18_weeks = (total - waiting over 18 weeks) / total."],
     }

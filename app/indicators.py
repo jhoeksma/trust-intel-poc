@@ -19,8 +19,9 @@ SEGMENT_HINTS = ("of5000", "segment")
 
 def latest_by_metric(db: Session, ods: str) -> list[dict]:
     """Latest and previous value for each metric of one trust."""
+    codes = [ods] + [c for (c,) in db.execute(select(Org.ods_code).where(Org.current_code == ods))]
     rows = db.execute(
-        select(Metric).where(Metric.ods_code == ods, Metric.value.is_not(None))
+        select(Metric).where(Metric.ods_code.in_(codes), Metric.value.is_not(None))
         .order_by(Metric.metric_code, Metric.period_sort.desc())
     ).scalars().all()
     out: dict[str, dict] = {}

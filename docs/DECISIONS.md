@@ -13,3 +13,7 @@
 | D-009 | 2026-10-20 | Option E (buy or partner) market scan requested (Jon) | Informs build-versus-buy before Phase 2 |
 | D-010 | 2026-10-20 | Basic auth for the PoC | Matches earlier projects; proprietary data lands here |
 | D-011 | 2026-10-20 | Use FHI's trust ODS code file (project files) as the organisation spine | Jon supplied it; anchors names and codes for joins |
+| D-012 | 2026-10-20 | Sum additive measures across dimension rows instead of storing each row | One value per org, metric and period; otherwise scorecards show an arbitrary row |
+| D-013 | 2026-10-20 | File URLs can be supplied by hand through `SEED_URLS_<SOURCE>` | NHS index pages return 403 or empty pages to Railway; stable manual seeds are the dependable route |
+| D-014 | 2026-10-20 | Reload files when `LOADER_VERSION` changes, even if the file hash is unchanged | Loader fixes must reach data already loaded |
+| D-015 | 2026-10-20 | Hand-maintained successor-code map; scorecards merge predecessor history | Mergers change ODS codes (RBZ to RH8) |

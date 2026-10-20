@@ -89,3 +89,14 @@ def test_reference_seed_and_coverage(client, db):
     db.commit()
     cov = client.get("/api/sources").json()["reference_coverage"]
     assert cov["reference_orgs"] == len(ref) and "ZZZ" in cov["public_data_not_in_reference"]
+
+
+def test_successor_code_history_shows_on_current_trust(client, db):
+    from app.reference import load_successors
+    assert load_successors().get("RBZ") == "RH8"
+    db.add_all([Org(ods_code="RBZ", name="Northern Devon", current_code="RH8"), Org(ods_code="RH8", name="Royal Devon")])
+    db.add(Metric(ods_code="RBZ", source_key="rtt", metric_code="rtt:pct_within_18_weeks", period="2021-12", period_sort=202112,
+                  period_type="month", value=55.0))
+    db.commit()
+    card = client.get("/api/trusts/RH8").json()
+    assert any(m["metric_code"] == "rtt:pct_within_18_weeks" for m in card["metrics"])
