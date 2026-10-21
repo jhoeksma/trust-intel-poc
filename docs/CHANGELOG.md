@@ -6,7 +6,7 @@
 - Real file: 218 organisations link, 654 spend values each for IT spend and total expenditure, 87 HIMSS stages. Six FHI ids have no ODS code in the reference list (Bridgewater, Norfolk Community, North Bristol, North Middlesex, Tavistock and Portman, Hounslow and Richmond Community) and are reported, not guessed. Stages written like "5 (2022)" load as 5 with quality flag "assessed 2022"; text such as "Not Assessed" is skipped.
 - Not loaded: the workbook's derived sheets (percentage changes, top/low spenders, analysis) are recomputable; the EPR sheet is superseded by the master installations file; the DMA 2024 sheet duplicates the public release.
 - Tests: 72 passing.
-- The six unmapped IT-spend trusts now link through `data/reference/fhi_id_extra.csv` (FHI id to ODS code, codes supplied by Jon 21 Oct 2026): RY2, RY3, RVJ, RAP, RNK, RY9. Pre-merger codes keep the predecessor's data, and `code_successors.csv` carries the link to the current code. 224 organisations now link; no unmapped ids.
+- The six unmapped IT-spend trusts now link through `data/reference/fhi_id_extra.csv` (FHI id to ODS code, codes supplied by Jon 21 Oct 2026): RY2, RY3, RVJ, RAP, RNK, RY9. RY9 (Hounslow and Richmond) was dissolved and split between RTW and RAX, so it has no single successor and its spend stays under RY9. Pre-merger codes keep the predecessor's data, and `code_successors.csv` carries the link to the current code. 224 organisations now link; no unmapped ids.
 
 ## 0.13.0 - 2026-10-21
 
