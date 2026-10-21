@@ -31,7 +31,8 @@ GROUP_LABELS = {"acute": "Acute trusts", "mhc": "Mental health and community tru
                 "other": "Other organisations"}
 SOURCE_LABELS = {"nof": "Oversight Framework", "rtt": "Waiting times (RTT)", "cqc": "CQC quality ratings",
                  "workforce": "Workforce", "eric": "Estates (ERIC, trust)", "eric_site": "Estates (ERIC, sites)",
-                 "hes": "Hospital activity (HES)", "dma": "Digital maturity (DMA)"}
+                 "hes": "Hospital activity (HES)", "dma": "Digital maturity (DMA)",
+                 "itspend": "IT spend (FHI FOI survey)"}
 
 # Direction in which a metric is "good". Anything not listed is neutral: ranked highest first, never coloured.
 HIGHER_BETTER = {"cqc:overall", "cqc:safe", "cqc:effective", "cqc:caring", "cqc:responsive", "cqc:well_led",

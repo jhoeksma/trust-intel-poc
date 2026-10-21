@@ -352,3 +352,42 @@ def test_dma_filter_by_epr_supplier(dma_client):
     assert dma_client.get("/api/dma/correlation?supplier=Nobody").json()["n_trusts"] == 0
     t = next(x for x in base["trusts"] if x["ods_code"] == "T17")
     assert t["systems"]["EPR"] == ["Alpha", "Beta"]
+
+
+def _itspend_book():
+    import openpyxl
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for title, mult in (("IT spend 2022-23", 1), ("IT spend 2023-24", 2), ("IT spend 2024-25", 3)):
+        ws = wb.create_sheet(title)
+        ws.append(["Trust ID", "Trust name", "Trust type", "Trust expenditure", "IT spend", "% of IT spend"])
+        ws.append([7, "A Trust", "Acute Trust", 100_000_000, 1_000_000 * mult, 0.01 * mult])
+        ws.append([99, "Unknown Trust", "Acute Trust", 50_000_000, 500_000, 0.01])
+        ws.append([None, None, "Total", 150_000_000, 1_500_000, 0.01])
+    h = wb.create_sheet("HIMSS")
+    h.append(["Trust name", "Type", "HIMSS EMRAM", "HIMSS INFRAM", "Plan to Reassess?"])
+    h.append(["A Trust", "Acute Trust", "5 (2022)", "Not Assessed", "No"])
+    h.append(["Elsewhere", "Acute Trust", "N/A", "N/A", "N/A"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_itspend_import_joins_on_fhi_id_and_reports_unmapped(client, monkeypatch):
+    from app import systems as sy
+    monkeypatch.setattr(sy, "fhi_to_ods", lambda: {"7": "RXX"})
+    r = client.post("/api/itspend/import", files={"file": ("it.xlsx", io.BytesIO(_itspend_book()), "application/octet-stream")})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["organisations"] == 1 and body["unmapped_fhi_ids"] == {"99": "Unknown Trust"} and body["himss_values_loaded"] == 1
+    from app.db import get_db
+    from app.main import app
+    db = next(app.dependency_overrides[get_db]()) if get_db in app.dependency_overrides else next(get_db())
+    vals = {m.period: m.value for m in db.query(Metric).filter_by(ods_code="RXX", metric_code="itspend:it_spend")}
+    assert vals == {"2022/23": 1_000_000, "2023/24": 2_000_000, "2024/25": 3_000_000}
+    em = db.query(Metric).filter_by(ods_code="RXX", metric_code="itspend:himss_emram").one()
+    assert em.value == 5 and em.quality_flag == "assessed 2022"
+    assert db.query(Metric).filter_by(metric_code="itspend:it_spend_pct", period="2024/25").one().value == 3.0
+    # re-upload replaces, never duplicates
+    client.post("/api/itspend/import", files={"file": ("it.xlsx", io.BytesIO(_itspend_book()), "application/octet-stream")})
+    assert db.query(Metric).filter_by(ods_code="RXX", metric_code="itspend:it_spend").count() == 3

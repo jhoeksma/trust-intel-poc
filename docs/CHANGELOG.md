@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0 - 2026-10-21
+
+- IT spend: FHI's FOI-survey workbook loads as source `itspend` through `POST /api/itspend/import` (or `python -m scripts.load_itspend file.xlsx`). Metrics: `itspend:it_spend`, `itspend:total_expenditure` (GBP) and `itspend:it_spend_pct` for 2022/23, 2023/24 and 2024/25, plus `itspend:himss_emram` and `itspend:himss_infram` (stage 0-7, survey Jan 2026). Joined on FHI Trust ID, the same key as the installed-systems file. Proprietary: database only, upload replaces the previous load.
+- Real file: 218 organisations link, 654 spend values each for IT spend and total expenditure, 87 HIMSS stages. Six FHI ids have no ODS code in the reference list (Bridgewater, Norfolk Community, North Bristol, North Middlesex, Tavistock and Portman, Hounslow and Richmond Community) and are reported, not guessed. Stages written like "5 (2022)" load as 5 with quality flag "assessed 2022"; text such as "Not Assessed" is skipped.
+- Not loaded: the workbook's derived sheets (percentage changes, top/low spenders, analysis) are recomputable; the EPR sheet is superseded by the master installations file; the DMA 2024 sheet duplicates the public release.
+- Tests: 72 passing.
+
 ## 0.13.0 - 2026-10-21
 
 - Installed systems: FHI's master installations file (department-level systems, suppliers, contract notes) loads into `trust_systems`. `POST /api/systems/import` detects the master layout (Trust_ID, DepartmentName, SupplierName) and replaces the table as a full snapshot; the older simple CSV (ods_code, category, supplier ...) still works. `python -m scripts.load_systems file.csv` does the same locally. The data is proprietary and lives in the database only; nothing is committed.

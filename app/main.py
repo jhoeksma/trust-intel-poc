@@ -16,7 +16,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.orm import Session
 
-from app import benchmark, dma_analysis, indicators, systems
+from app import benchmark, dma_analysis, indicators, itspend, systems
 from app.config import settings
 from app.db import get_db
 from app.models import Metric, Org, RefreshRun, SourceFile, TrustSystem
@@ -235,6 +235,20 @@ def trigger_refresh(bg: BackgroundTasks, source: str | None = None):
         raise HTTPException(404, f"Unknown source {source}")
     bg.add_task(refresh, [source] if source else None, "api")
     return {"started": True, "source": source or "all"}
+
+
+@app.post("/api/itspend/import", dependencies=[Depends(require_auth)])
+async def import_itspend(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Load FHI's IT-spend workbook (FOI survey). Proprietary: database only. Replaces the previous itspend load."""
+    raw = await file.read()
+    try:
+        res = itspend.load_itspend(raw)
+    except (KeyError, ValueError, StopIteration) as e:
+        raise HTTPException(400, f"Not the IT-spend workbook layout: {e!r}")
+    if not res.metrics:
+        raise HTTPException(400, "No IT spend rows found")
+    itspend.store(db, file.filename or "FHI_IT_spend.xlsx", raw, res)
+    return {"metric_rows": len(res.metrics), **res.profile}
 
 
 @app.get("/api/systems/options")
