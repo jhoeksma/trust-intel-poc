@@ -4,4 +4,4 @@ fhi_trust_id,ods_code,name,note
 529,RVJ,North Bristol NHS Trust,Historic code; merged 1 Jul 2026 into RA7 (see code_successors.csv)
 531,RAP,North Middlesex University Hospital NHS Trust,Active
 51,RNK,Tavistock and Portman NHS Foundation Trust,Historic code; merged 1 Apr 2026 into G6V2S (see code_successors.csv)
-757,RY9,Hounslow and Richmond Community Healthcare NHS Trust,Dissolved: Hounslow services to West London NHS Trust (RTW) and Richmond services to Kingston Hospital (RAX). Split between two successors so deliberately not in code_successors.csv; spend stays under RY9. Corrected by Jon 21 Oct 2026
+757,RY9,Hounslow and Richmond Community Healthcare NHS Trust,Dissolved: Hounslow services to West London NHS Trust (Jon gave RTW; our reference list has RKL, FHI id 716, to verify against ODS) and Richmond services to Kingston Hospital (RAX). Split between two successors so deliberately not in code_successors.csv; spend stays under RY9. Corrected by Jon 21 Oct 2026
