@@ -310,6 +310,8 @@ def test_dma_correlation_signs_and_quartiles(dma_client):
     q = d["quartiles"]["nof_score"]
     assert [r["q"] for r in q] == [1, 2, 3, 4] and q[0]["mean"] > q[3]["mean"]  # least mature quartile has the worse (higher) score
     assert d["quartiles"]["cqc_overall"][3]["good_pct"] == 100.0 and d["quartiles"]["cqc_overall"][0]["good_pct"] == 0.0
+    assert d["time"]["n"] == 20 and d["time"]["periods"] == [2024, 2025] and d["time"]["median_change"] == pytest.approx(0.1)
+    assert d["time"]["improved"] == 20 and d["trusts"][0]["dma"]["overall_prev"] == pytest.approx(3.3)
     t = d["trusts"][0]
     assert t["ods_code"] == "T19" and t["dma"]["change"] == pytest.approx(0.1) and t["care_setting"] == "Acute"
 

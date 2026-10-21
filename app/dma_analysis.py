@@ -108,6 +108,7 @@ def analyse(db: Session, group: str | None = None, subtype: str | None = None) -
         latest_ps = max(per)
         prev = [p for p in per if p < latest_ps]
         dma = {"overall": per[latest_ps], "overall_period": latest_ps // 100,
+               "overall_prev": per[max(prev)] if prev else None, "overall_prev_period": max(prev) // 100 if prev else None,
                "change": round(per[latest_ps] - per[max(prev)], 3) if prev else None}
         for k, _ in PILLARS:
             dma["p_" + k] = pillars[k].get(ods, {}).get("value")
@@ -148,8 +149,17 @@ def analyse(db: Session, group: str | None = None, subtype: str | None = None) -
             rows.append(row)
         quartiles[okey] = rows
 
+    both = [t for t in trusts if t["dma"]["change"] is not None]
+    ch = [t["dma"]["change"] for t in both]
+    time = None
+    if ch:
+        time = {"n": len(ch), "periods": [both[0]["dma"]["overall_prev_period"], both[0]["dma"]["overall_period"]],
+                "median_prev": round(_median([t["dma"]["overall_prev"] for t in both]), 3),
+                "median_now": round(_median([t["dma"]["overall"] for t in both]), 3),
+                "median_change": round(_median(ch), 3), "improved": sum(1 for c in ch if c > 0.05), "declined": sum(1 for c in ch if c < -0.05),
+                "flat": sum(1 for c in ch if -0.05 <= c <= 0.05)}
     return {
-        "group": group, "subtype": subtype, "n_trusts": len(trusts), "min_n": MIN_N,
+        "group": group, "subtype": subtype, "n_trusts": len(trusts), "time": time, "min_n": MIN_N,
         "dma_measures": [{"key": k, "label": l} for k, l in DMA_MEASURES],
         "outcomes": [{"key": k, "label": l, "code": c, "better": b, "group": gr, "good_label": g[0] if g else None}
                      for k, l, c, b, g, gr in OUTCOMES],

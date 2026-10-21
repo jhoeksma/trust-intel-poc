@@ -49,7 +49,7 @@ LOWER_BETTER_NOF = [(4200, 4209), (4300, 4309)]  # domain average scores and dom
 # bare suffix (matched against the part after the colon, so the ERIC derived fields resolve whatever the source key).
 CORE_FIELDS = ["nof:of5200", "nof:of5202", "nof:league_rank", "cqc:overall", "rtt:pct_within_18_weeks",
                "rtt:pct_over_52_weeks", "rtt:incomplete_median_wait_weeks", "rtt:incomplete_pathways_total",
-               "cqc:core_services_below_good_pct", "backlog_per_sqm"]
+               "nof:of4203", "nof:of0081", "cqc:core_services_below_good_pct", "backlog_per_sqm"]
 
 PEER_GROUP_CODE = "nof:peer_group"  # written by the NOF loader from each file's Trust_type
 SUBTYPE_CODE = "nof:peer_subtype"  # ... and from Trust_subtype (see app/sources/nof.py SUBTYPES)
@@ -118,13 +118,24 @@ def core_codes(db: Session) -> list[str]:
 
 
 def latest_values(db: Session, code: str) -> dict[str, dict]:
-    """ods_code -> {value, period} using each organisation's latest period."""
+    """ods_code -> {value, period} using each organisation's latest period.
+
+    Oversight Framework quarters are all published together, so an organisation whose latest NOF value is older than
+    the measure's newest quarter has left the framework (merged or closed): it is left out, so that a trust is never
+    ranked against a stale value from a superseded method. Other sources keep every organisation's own latest value
+    (CQC ratings, for instance, legitimately date from different years).
+    """
     out: dict[str, dict] = {}
     rows = db.execute(
         select(Metric.ods_code, Metric.value, Metric.period, Metric.period_sort)
         .where(Metric.metric_code == code, Metric.value.is_not(None)).order_by(Metric.period_sort.desc())
     )
-    for ods, value, period, _ in rows:
+    newest = None
+    for ods, value, period, ps in rows:
+        if newest is None:
+            newest = ps
+        if code.startswith("nof:") and ps != newest:
+            break  # rows are newest first
         if ods not in out and value is not None and not math.isnan(value):
             out[ods] = {"value": float(value), "period": period}
     return out
@@ -237,6 +248,20 @@ def metric_view(db: Session, code: str, group: str | None = None, subtype: str |
             "points": pts, "ranking": "best first" if pol else "highest first"}
 
 
+# NOF series whose 2025/26 points were mapped onto 2026/27 IDs (see app/sources/nof.py ALIAS_2025_26).
+METHOD_BREAK_CODES = {"nof:" + c.lower() for c in (
+    "OF5200", "OF5202", "OF5203", "OF5204", "OF4200", "OF4202", "OF4203", "OF4204", "OF4300", "OF4302", "OF4303", "OF4304",
+    "OF2079", "OF2080", "OF2081")} | {"nof:league_rank"}
+METHOD_BREAK_FROM = 202604  # Q1 2026/27, the first quarter under the changed framework
+
+
+def method_break(code: str, sorts: list[int]) -> dict | None:
+    """Where a series crosses the 2026/27 framework change, so charts can mark it."""
+    if code in METHOD_BREAK_CODES and any(s < METHOD_BREAK_FROM for s in sorts) and any(s >= METHOD_BREAK_FROM for s in sorts):
+        return {"from_period_sort": METHOD_BREAK_FROM, "note": "The 2026/27 Oversight Framework changed method, so points before this line are not strictly comparable."}
+    return None
+
+
 def metric_trend(db: Session, code: str, group: str | None = None, subtype: str | None = None, months: int = 24) -> dict | None:
     """One measure over time for a whole group: per-period spread, plus every member's series.
 
@@ -264,7 +289,7 @@ def metric_trend(db: Session, code: str, group: str | None = None, subtype: str 
     series = [{"ods_code": o, "name": names.get(o), "values": [round(vals[ps], 4) if ps in vals else None for ps in keep]}
               for o, vals in sorted(by_org.items()) if any(ps in vals for ps in keep)]
     return {**meta, "group": group, "subtype": subtype, "groups": GROUP_LABELS, "subtype_labels": SUBTYPE_LABELS,
-            "periods_shown": len(keep), "periods": periods, "series": series}
+            "periods_shown": len(keep), "periods": periods, "series": series, "method_break": method_break(code, keep)}
 
 
 def choose_pool(national: dict, ods: str, groups: dict, subs: dict, scope: str):
@@ -314,7 +339,8 @@ def trust_trend(db: Session, ods: str, code: str, scope: str = "subtype", months
             if mine is not None:
                 pt.update(position(vals if ods in pool else vals + [mine], mine, meta["polarity"]))
         points.append(pt)
-    return {**meta, "ods_code": ods, "scope": scope, "scope_used": used, "peer_label": label, "points": points}
+    return {**meta, "ods_code": ods, "scope": scope, "scope_used": used, "peer_label": label, "points": points,
+            "method_break": method_break(code, [p["period_sort"] for p in points])}
 
 
 def trust_benchmark(db: Session, ods: str, codes: list[str], scope: str = "subtype") -> dict:

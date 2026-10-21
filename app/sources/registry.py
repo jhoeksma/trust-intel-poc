@@ -30,6 +30,13 @@ class SourceSpec:
     note: str = ""
 
 
+_NOF_Q4 = "https://www.england.nhs.uk/wp-content/uploads/2026/06/nhs-oversight-framework-"
+# Q4 2025/26 files hold all four 2025/26 quarters (Q1 to Q4) for every trust, so these three trust-data files give the
+# history; the league tables carry Q4 only. Addresses read from NHS England's "csv metadata file" page for Q4 2025/26.
+NOF_2025_26 = tuple(_NOF_Q4 + n + ".csv" for n in (
+    "acute-trust-data", "mental-health-and-community-trust-data", "ambulance-trust-data",
+    "acute-trust-league-table", "mental-health-and-community-trust-league-table", "ambulance-trust-league-table"))
+
 _RTT_BASE = "https://www.england.nhs.uk/statistics/wp-content/uploads/sites/2/"
 # Monthly Full CSV zips, September 2024 to July 2026 (August 2026 is the committed local seed). The hashed names cannot
 # be guessed: they were read from the RTT pages for 2024-25, 2025-26 and 2026-27. Re-read them when a month is revised.
@@ -66,13 +73,14 @@ SOURCES: dict[str, SourceSpec] = {
                 "file://data/manual/NOF%20-%20Q1%202026_27%20-%20" + n.replace(" ", "%20") + ".csv.gz"
                 for n in ("Trust data - Acute", "Trust data - Ambulance", "Trust data - Mental health and community",
                           "League table - Acute", "League table - Ambulance", "League table - Mental health and community")
-            ),
+            ) + NOF_2025_26,
             loader="nof",
             default_period="Q1 2026/27",
             note="Q1 2026/27 supplied by Jon as Numbers files (20 Oct 2026), converted to CSV and committed (public, OGL). "
             "Trust data is long format (Metric_ID, Value, rank); league tables add rank and likely ranges. "
             "Adjusted segment is OF5200. Override with SEED_URLS_NOF once official CSV links are known. "
-            "The 2026/27 framework changed method; not comparable with 2025/26.",
+            "2025/26 history (Q1 to Q4) comes from the Q4 2025/26 CSVs by URL; its composite scores and segments are mapped onto the 2026/27 IDs "
+            "(see ALIAS_2025_26 in nof.py) but the 2026/27 framework changed method, so charts mark a method break between Q4 2025/26 and Q1 2026/27.",
         ),
         SourceSpec(
             key="rtt",

@@ -242,3 +242,44 @@ def test_dma_override_must_point_at_a_known_org():
                  overrides={"nobody": "ZZZ", "beta and gamma": "RXX"})
     assert "ZZZ" in " ".join(r.profile["unmatched_providers"])  # unknown override code is reported, not created
     assert "RXX" in {m["ods_code"] for m in r.metrics}
+
+
+NOF_2526 = ("Quarter,Region,Trust_type,Trust_subtype,Trust_code,Trust_name,Domain,Sub-domain,Metric_ID,Metric_description,"
+            "Reporting_date,Units,Value,Median_value,Lower_quartile,Upper_quartile,Rank\n"
+            "Q1 2025/26,London,Acute trust,Acute - Large,RXX,Alpha NHS Trust,Summary,Summary,OF5000,Adjusted segment,Q1 2025/26,segment,2,,,,\n"
+            "Q4 2025/26,London,Acute trust,Acute - Large,RXX,Alpha NHS Trust,Summary,Summary,OF5000,Adjusted segment,Q4 2025/26,segment,3,,,,\n"
+            "Q4 2025/26,London,Acute trust,Acute - Large,RXX,Alpha NHS Trust,Finance,Finance,OF0081,Variance year-to-date to financial plan,Month 12 2026,percent,-0.4,0,-1,0.1,50\n"
+            "Q4 2025/26,London,Acute trust,Acute - Large,RXX,Alpha NHS Trust,Finance,Finance,OF4005,Effectiveness and experience domain score,Q4 2025/26,score,2.2,,,,\n"
+            "Q4 2025/26,London,Acute trust,Acute - Large,RXX,Alpha NHS Trust,Finance,Finance,OF4003,Finance and productivity domain score,Q4 2025/26,score,1.9,,,,\n")
+
+
+def test_nof_2025_26_ids_map_onto_2026_27_but_underlying_measures_and_unmapped_ids_keep_theirs():
+    from app.sources.nof import load_nof
+    r = load_nof("nof", "q4.csv", NOF_2526.encode())
+    by = {(m["metric_code"], m["period"]): m for m in r.metrics}
+    assert by[("nof:of5200", "Q1 2025/26")]["value"] == 2 and by[("nof:of5200", "Q4 2025/26")]["value"] == 3  # OF5000 -> OF5200
+    assert "2025/26 framework ID OF5000" in by[("nof:of5200", "Q4 2025/26")]["metric_label"]
+    assert by[("nof:of4203", "Q4 2025/26")]["value"] == 1.9  # finance domain score OF4003 -> OF4203
+    assert ("nof:of0081", "Q4 2025/26") in by and ("nof:of0081:rank", "Q4 2025/26") in by  # same ID in both frameworks
+    assert ("nof:of4005", "Q4 2025/26") in by  # split in 2026/27, so not mapped
+    assert not any(c == "nof:of5000" for c, _ in by)
+
+
+def test_nof_latest_values_ignore_organisations_that_left_the_framework(db):
+    from app import benchmark
+    from app.models import Metric, SourceFile
+    sf = SourceFile(source_key="nof", status="loaded")
+    db.add(sf)
+    db.flush()
+
+    def m(o, per, ps, v):
+        db.add(Metric(ods_code=o, source_key="nof", metric_code="nof:of5200", metric_label="x", period=per, period_sort=ps,
+                      period_type="quarter", value=v, source_file_id=sf.id))
+    m("AAA", "Q4 2025/26", 202601, 2)
+    m("AAA", "Q1 2026/27", 202604, 3)
+    m("GONE", "Q4 2025/26", 202601, 1)  # merged away: last reported before the newest quarter
+    db.commit()
+    assert set(benchmark.latest_values(db, "nof:of5200")) == {"AAA"}
+    assert benchmark.method_break("nof:of5200", [202601, 202604])["from_period_sort"] == 202604
+    assert benchmark.method_break("nof:of0081", [202601, 202604]) is None  # underlying measure: same definition
+    assert benchmark.method_break("nof:of5200", [202604]) is None

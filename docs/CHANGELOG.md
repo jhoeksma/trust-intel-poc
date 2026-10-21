@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0 - 2026-10-21
+
+- NOF history: the three Q4 2025/26 trust-data CSVs and three league tables are seeded by URL (`NOF_2025_26` in the registry). Each trust-data file holds all four 2025/26 quarters for every trust (134 acute, 61 mental health and community, 10 ambulance), so Q1 to Q4 2025/26 now sit alongside Q1 2026/27. URLs read through Chrome from NHS England's csv metadata pages for Q1 to Q4 2025/26; the Q1 2025/26 file has no Quarter column and is not needed because Q4's file repeats Q1.
+- Series continuity: the 2025/26 framework used different IDs for the composites (adjusted segment OF5000, average score OF5002, unadjusted segment OF5003, financial override OF5004, domain scores OF4000-OF4004 and segments OF4100-OF4104, finance scores OF1079-OF1081). The loader maps these onto the 2026/27 IDs (`ALIAS_2025_26` in nof.py; labels keep the 2025/26 ID). OF4005/OF4105 split in 2026/27 and keep their own IDs. Underlying measures (OF0079 planned surplus/deficit, OF0081 variance to plan, ...) share IDs across both frameworks.
+- Method break: the 2026/27 framework changed method, so trend charts for the mapped composites draw a dashed "method changed" line between Q4 2025/26 and Q1 2026/27 and carry the note (`method_break` in the trend APIs).
+- Latest-value rule: for NOF measures, an organisation whose latest value is older than the measure's newest quarter (merged or closed) is left out of rankings and peer statistics, so a trust is never ranked against a stale value from the old method. Its own history still shows in its trend.
+- Trust dashboard core fields now include the finance domain score (OF4203) and variance to plan (OF0081), each with a trend link.
+- Digital maturity tab: new "over time" card with a 2024 to 2025 slope chart, median movement, counts improved/fell/flat, biggest improvers and falls, and the correlation of improvement with each outcome. `GET /api/dma/correlation` now returns `time` and each trust's `overall_prev`.
+- Tests: 69 passing.
+
 ## 0.11.1 - 2026-10-21
 
 - DMA live: 203 of 204 trusts matched on the first load. "Royal Devon University Healthcare" matched two codes (RBZ, RH8); override to RH8 added.

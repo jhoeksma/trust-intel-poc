@@ -34,6 +34,18 @@ UNITS = {"%": "pct", "mins": "mins", "days": "days", "score": "score", "segment"
 _RANGE = re.compile(r"^\s*([\d.]+)\s+to\s+([\d.]+)\s*$")
 
 
+# 2025/26 framework IDs that carry the same quantity as a 2026/27 ID, so one series runs across both. Only the
+# composite scores, segments and finance scores are renumbered; the underlying measures (OF0079, OF0081 ...) keep
+# their IDs. The 2026/27 framework changed method, so benchmark.METHOD_BREAK_CODES marks these series with a break.
+FRAMEWORK_2026_START = 202604  # Q1 2026/27
+ALIAS_2025_26 = {
+    "OF5000": "OF5200", "OF5002": "OF5202", "OF5003": "OF5203", "OF5004": "OF5204",
+    "OF4000": "OF4200", "OF4002": "OF4202", "OF4003": "OF4203", "OF4004": "OF4204",
+    "OF4100": "OF4300", "OF4102": "OF4302", "OF4103": "OF4303", "OF4104": "OF4304",
+    "OF1079": "OF2079", "OF1080": "OF2080", "OF1081": "OF2081",
+}  # OF4005/OF4105 (effectiveness and experience) split in two in 2026/27, so are left under their own IDs
+
+
 def peer_group_code(trust_type: str | None) -> int | None:
     """NOF's own trust type: 1 acute, 2 mental health and community, 3 ambulance. The peer group used for benchmarking."""
     t = (trust_type or "").lower()
@@ -135,10 +147,15 @@ def load_nof(source_key: str, file_name: str, data: bytes, default_period: str |
                 dup += 1
                 continue
             seen.add(key)
+            native = mid
+            if period.sort < FRAMEWORK_2026_START and mid in ALIAS_2025_26:
+                mid = ALIAS_2025_26[mid]
             code = f"{source_key}:{slug(mid)}"
             desc = get(r, "metric_description").replace("\xa0", " ").strip() or mid
             window = get(r, "reporting_date")
             label = f"{mid} {desc}" + (f" [{window}]" if window else "")
+            if native != mid:
+                label += f" (2025/26 framework ID {native})"
             unit = UNITS.get(get(r, "units").lower(), slug(get(r, "units")) or None)
             result.metrics.append(_metric(code, label, org, period, val, source_key, unit))
             rank = _num(get(r, "rank"))

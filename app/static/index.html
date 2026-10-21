@@ -338,6 +338,15 @@ function toggleTrend(i, code) {
     box.innerHTML = trendChart(t);
   }).catch(function (e) { box.innerHTML = '<span class="dn">' + esc(e.message) + '</span>'; });
 }
+function breakMark(t, list, x, T, H, B) {
+  var br = t.method_break, i;
+  if (!br) { return ''; }
+  for (i = 0; i < list.length; i++) { if (list[i].period_sort >= br.from_period_sort) { break; } }
+  if (i === 0 || i >= list.length) { return ''; }
+  var bx = (x(i - 1) + x(i)) / 2;
+  return '<line x1="' + bx + '" x2="' + bx + '" y1="' + T + '" y2="' + (H - B) + '" stroke="var(--s4)" stroke-dasharray="3 3" stroke-width="1.5"><title>' + esc(br.note) + '</title></line>' +
+    '<text x="' + (bx + 5) + '" y="' + (T + 10) + '" class="ax" style="fill:var(--s4)">method changed</text>';
+}
 function trendChart(t) {
   var pts = t.points, n = pts.length, W = 900, H = 230, L = 56, R = 16, T = 14, B = 34;
   var ys = [];
@@ -352,6 +361,7 @@ function trendChart(t) {
     var v = lo + (hi - lo) * f;
     h += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="' + (L - 6) + '" y="' + (y(v) + 4) + '" class="ax" text-anchor="end">' + esc(fmt(v, t.unit)) + '</text>';
   });
+  h += breakMark(t, pts, x, T, H, B);
   var up = [], dn = [];
   pts.forEach(function (p, i) { if (p.p25 != null) { up.push(x(i) + ',' + y(p.p75)); dn.unshift(x(i) + ',' + y(p.p25)); } });
   if (up.length > 1) { h += '<polygon points="' + up.concat(dn).join(' ') + '" fill="var(--band)" opacity=".7"/>'; }
@@ -381,7 +391,7 @@ function trendChart(t) {
     sum = esc(fmt(first.value, t.unit)) + ' (' + esc(first.period) + ') to ' + esc(fmt(last.value, t.unit)) + ' (' + esc(last.period) + ')' +
       (first.rank && last.rank ? ' · rank ' + first.rank + ' of ' + first.n + ' to ' + last.rank + ' of ' + last.n : '');
   }
-  return '<div class="mute" style="font-size:12px;margin-bottom:2px">Solid line: this trust. Dashed line and band: median and middle half of ' + esc(t.peer_label) + '. ' + sum + '</div>' + h;
+  return '<div class="mute" style="font-size:12px;margin-bottom:2px">Solid line: this trust. Dashed line and band: median and middle half of ' + esc(t.peer_label) + '. ' + sum + (t.method_break ? ' <span style="color:var(--s4)">' + esc(t.method_break.note) + '</span>' : '') + '</div>' + h;
 }
 
 /* ---------- metric explorer ---------- */
@@ -416,6 +426,7 @@ function digitalDraw() {
   var h = '<div class="card"><h3 style="margin:0 0 4px">Do more digitally mature trusts perform better?</h3>' +
     '<p class="mute" style="margin:0 0 8px">' + d.n_trusts + ' organisations with a DMA score. Each bar is a rank correlation between overall DMA score and the outcome, signed so that <b>right of the line always means more mature trusts do better</b>. Whiskers show the 95% interval; if they cross the line the link is not distinguishable from chance.</p>' + forest(d) + '</div>';
   h += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(420px,1fr))"><div class="card" id="dsc"></div><div class="card" id="dq"></div></div>';
+  h += '<div class="card" id="dtime"></div>';
   h += '<div class="card"><h3 style="margin:0 0 4px">Which pillars matter most?</h3><p class="mute" style="margin:0 0 8px">Rank correlation of each DMA measure with each outcome (green: more mature does better; red: does worse; grey: too few trusts). Click a cell to plot it above.</p><div class="wrap">' + heat(d) + '</div></div>';
   h += '<div class="card"><h3 style="margin:0 0 4px">Reading this carefully</h3><ul style="margin:6px 0 0 18px;padding:0">' + d.caveats.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ul></div>';
   h += '<div class="card"><h3 style="margin:0 0 8px">Trusts by digital maturity</h3><div class="rankbox"><table><thead><tr><th>Trust</th><th>Type</th><th>DMA setting</th><th class="n">DMA 2025</th><th class="n">Change</th><th class="n">NOF segment</th><th class="n">NOF score</th><th>CQC</th></tr></thead><tbody>' +
@@ -425,7 +436,38 @@ function digitalDraw() {
         '</td><td class="n ' + (ch > 0 ? 'up' : ch < 0 ? 'dn' : '') + '">' + (ch == null ? '–' : (ch > 0 ? '+' : '') + num(ch, 2)) + '</td><td class="n">' + (o.nof_segment == null ? '–' : o.nof_segment) + '</td><td class="n">' + num(o.nof_score, 2) + '</td><td>' + cqcPill(o.cqc_overall) + '</td></tr>';
     }).join('') + '</tbody></table></div></div>';
   el.innerHTML = h;
+  digitalTime(d);
   digitalPlots();
+}
+function digitalTime(d) {
+  var el = document.getElementById('dtime'), tm = d.time;
+  if (!tm) { el.innerHTML = '<h3 style="margin:0 0 4px">Digital maturity over time</h3><p class="mute">Only one year of scores is loaded for this group.</p>'; return; }
+  var both = d.trusts.filter(function (t) { return t.dma.change != null; });
+  var W = 560, H = 330, L = 70, R = 100, T = 18, B = 34, vals = [];
+  both.forEach(function (t) { vals.push(t.dma.overall_prev, t.dma.overall); });
+  var lo = Math.min.apply(null, vals) - 0.1, hi = Math.max.apply(null, vals) + 0.1;
+  var X = [L, W - R], y = function (v) { return T + (H - T - B) * (1 - (v - lo) / (hi - lo)); };
+  var g = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Digital maturity scores 2024 and 2025 per trust">';
+  [0, 0.25, 0.5, 0.75, 1].forEach(function (f) { var v = lo + (hi - lo) * f; g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text class="ax" x="' + (L - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + num(v, 1) + '</text>'; });
+  both.forEach(function (t) {
+    var up = t.dma.change > 0.05, dn = t.dma.change < -0.05;
+    g += '<line x1="' + X[0] + '" y1="' + y(t.dma.overall_prev) + '" x2="' + X[1] + '" y2="' + y(t.dma.overall) + '" stroke="' + (up ? 'var(--s1)' : dn ? 'var(--s5)' : 'var(--dot)') + '" stroke-opacity=".38" stroke-width="1.3" style="cursor:pointer" onclick="go(\'trust\',\'' + esc(t.ods_code) + '\')"><title>' +
+      esc((t.name || t.ods_code) + ': ' + num(t.dma.overall_prev, 2) + ' to ' + num(t.dma.overall, 2)) + '</title></line>';
+  });
+  g += '<line x1="' + X[0] + '" y1="' + y(tm.median_prev) + '" x2="' + X[1] + '" y2="' + y(tm.median_now) + '" stroke="var(--accent)" stroke-width="3.5"/>' +
+    '<text class="ax" x="' + X[0] + '" y="' + (H - 10) + '" text-anchor="middle" style="font-size:12.5px;fill:var(--ink)">' + tm.periods[0] + '</text><text class="ax" x="' + X[1] + '" y="' + (H - 10) + '" text-anchor="middle" style="font-size:12.5px;fill:var(--ink)">' + tm.periods[1] + '</text>' +
+    '<text class="lbl" x="' + (X[1] + 6) + '" y="' + (y(tm.median_now) + 4) + '" style="font-size:12px">median ' + num(tm.median_now, 2) + '</text><text class="lbl" x="' + (X[0] - 6) + '" y="' + (y(tm.median_prev) - 8) + '" text-anchor="start" style="font-size:12px">median ' + num(tm.median_prev, 2) + '</text></svg>';
+  var sorted = both.slice().sort(function (a, b) { return b.dma.change - a.dma.change; });
+  var row = function (t) { return '<tr><td><a onclick="go(\'trust\',\'' + esc(t.ods_code) + '\')">' + esc(t.name || t.ods_code) + '</a></td><td class="n">' + num(t.dma.overall_prev, 2) + ' → ' + num(t.dma.overall, 2) + '</td><td class="n ' + (t.dma.change > 0 ? 'up' : 'dn') + '">' + (t.dma.change > 0 ? '+' : '') + num(t.dma.change, 2) + '</td></tr>'; };
+  var cr = d.correlations.change, verd = d.outcomes.map(function (o) {
+    var c = cr[o.key], v = verdict(c); return c ? '<tr><td>' + esc(o.label) + '</td><td class="n">' + (c.rho > 0 ? '+' : '') + c.rho.toFixed(2) + '</td><td class="' + v[1] + '">' + esc(v[0].replace('More mature trusts do', 'Improvers do')) + '</td></tr>' : '';
+  }).join('');
+  el.innerHTML = '<h3 style="margin:0 0 4px">Digital maturity over time, ' + tm.periods[0] + ' to ' + tm.periods[1] + '</h3>' +
+    '<p class="mute" style="margin:0 0 8px">' + tm.n + ' organisations scored in both years (overall score for comparable domains only). The median moved from <b>' + num(tm.median_prev, 2) + '</b> to <b>' + num(tm.median_now, 2) + '</b>; <b>' + tm.improved + '</b> improved by more than 0.05, <b>' + tm.declined + '</b> fell by more than 0.05 and ' + tm.flat + ' were flat. Only two years exist so far, so this is a before-and-after, not a trend.</p>' +
+    '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))"><div>' + g + '<p class="mute" style="font-size:12px;margin:2px 0 0">Each line is a trust (green improved, red fell); the blue line is the median. Click a line to open the trust.</p></div>' +
+    '<div><h4 style="margin:0 0 4px">Biggest improvers</h4><table><tbody>' + sorted.slice(0, 6).map(row).join('') + '</tbody></table>' +
+    '<h4 style="margin:10px 0 4px">Biggest falls</h4><table><tbody>' + sorted.slice(-6).reverse().map(row).join('') + '</tbody></table>' +
+    '<h4 style="margin:10px 0 4px">Do trusts that improved do better?</h4><table><tbody>' + verd + '</tbody></table><p class="mute" style="font-size:12px;margin:4px 0 0">Rank correlation of the 2024 to 2025 change with each outcome, signed so positive means improvers do better. Outcomes are one snapshot, so this tests association only.</p></div></div>';
 }
 function forest(d) {
   var rows = d.outcomes, W = 1000, L = 350, R = 330, rh = 30, H = rows.length * rh + 34, x0 = L, x1 = W - R, mid = (x0 + x1) / 2;
@@ -641,6 +683,7 @@ function groupTrendChart(t) {
     var v = lo + (hi - lo) * f;
     h += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="var(--line)"/><text x="' + (L - 6) + '" y="' + (y(v) + 4) + '" class="ax" text-anchor="end">' + esc(fmt(v, t.unit)) + '</text>';
   });
+  h += breakMark(t, P, x, T, H, B);
   h += '<g clip-path="url(#cp)">';
   var showLines = t.series.length <= 250;
   if (showLines) {
@@ -680,7 +723,7 @@ function groupTrendChart(t) {
   });
   return h + '</svg><p class="mute" style="margin:4px 0 0;font-size:12px">Dashed line: group median. Dark band: middle half; light band: 10th to 90th percentile.' +
     (showLines ? ' Faint lines: each organisation (click one to highlight it); lines beyond the plotted range are clipped.' : ' Individual lines are hidden above 250 organisations: pick a type or subtype to see them.') +
-    (mine ? '' : ' Highlight a trust to draw its line.') + '</p>';
+    (mine ? '' : ' Highlight a trust to draw its line.') + (t.method_break ? ' <span style="color:var(--s4)">' + esc(t.method_break.note) + '</span>' : '') + '</p>';
 }
 /* Largest movers between each organisation's first and last value in the window. */
 function movers(t) {
