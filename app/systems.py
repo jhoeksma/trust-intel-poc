@@ -17,6 +17,7 @@ import io
 import re
 from collections import Counter
 from datetime import date, datetime
+from pathlib import Path
 
 from sqlalchemy import delete, insert, select
 from sqlalchemy.orm import Session
@@ -48,8 +49,18 @@ def _date(text: str) -> date | None:
     return None
 
 
+EXTRA = Path(__file__).resolve().parent.parent / "data" / "reference" / "fhi_id_extra.csv"
+
+
 def fhi_to_ods() -> dict[str, str]:
-    return {str(r["fhi_trust_id"]).strip(): r["ods_code"] for r in load_reference() if str(r.get("fhi_trust_id") or "").strip()}
+    """FHI trust id -> ODS code. trusts_ods.csv first, then fhi_id_extra.csv for organisations missing from it
+    (pre-merger codes: the data belongs to the predecessor, and code_successors.csv links it to the current code)."""
+    out = {str(r["fhi_trust_id"]).strip(): r["ods_code"] for r in load_reference() if str(r.get("fhi_trust_id") or "").strip()}
+    if EXTRA.exists():
+        with open(EXTRA, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                out.setdefault(r["fhi_trust_id"].strip(), r["ods_code"].strip())
+    return out
 
 
 def parse_master(data: bytes, mapping: dict[str, str] | None = None) -> tuple[list[dict], dict]:
@@ -103,6 +114,7 @@ def replace_all(db: Session, rows: list[dict]) -> dict:
     known = {c for (c,) in db.execute(select(Org.ods_code))}
     missing = sorted({r["ods_code"] for r in rows} - known)
     names = {r["ods_code"]: r["name"] for r in load_reference()}
+    names.update(_extra_names())
     for code in missing:
         db.add(Org(ods_code=code, name=names.get(code), first_seen_source="systems"))
     db.flush()
@@ -128,3 +140,10 @@ def options(db: Session) -> dict:
         "categories": [{"category": c, "trusts": len(o)} for c, o in sorted(cats.items(), key=lambda kv: (kv[0] != "EPR", -len(kv[1]), kv[0]))],
         "suppliers": {c: [{"supplier": s, "trusts": len(o)} for s, o in sorted(d.items(), key=lambda kv: (-len(kv[1]), kv[0]))] for c, d in sups.items()},
     }
+
+
+def _extra_names() -> dict[str, str]:
+    if not EXTRA.exists():
+        return {}
+    with open(EXTRA, newline="", encoding="utf-8") as f:
+        return {r["ods_code"].strip(): r["name"] for r in csv.DictReader(f)}
