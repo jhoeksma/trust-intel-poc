@@ -3,7 +3,7 @@ import io
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models import Metric, Org, SourceFile
+from app.models import Metric, Org, SourceFile, TrustSystem
 
 
 @pytest.fixture()
@@ -292,6 +292,11 @@ def dma_client(db):
         m(o, "nof:of5202", "Q1 2026/27", 202604, 3.5 - i * 0.05)  # lower is better
         m(o, "nof:of5200", "Q1 2026/27", 202604, 4 if i < 5 else 3 if i < 10 else 2 if i < 15 else 1)
         m(o, "cqc:overall", "2026-10", 202610, 2 if i < 10 else 3)
+    for i in range(20):  # first 8 on Alpha, next 8 on Beta, 2 on both, 2 with no EPR recorded
+        sups = ["Alpha"] if i < 8 else ["Beta"] if i < 16 else ["Alpha", "Beta"] if i < 18 else []
+        for sp in sups:
+            db.add(TrustSystem(ods_code=f"T{i:02d}", category="EPR", supplier=sp))
+        db.add(TrustSystem(ods_code=f"T{i:02d}", category="PACS", supplier="Pix"))
     db.add(Org(ods_code="AMB", name="Ambulance"))
     m("AMB", "dma:overall", "2025", 202504, 3.0)
     m("AMB", "nof:peer_group", "Q1 2026/27", 202604, 3)
@@ -319,3 +324,31 @@ def test_dma_correlation_signs_and_quartiles(dma_client):
 def test_dma_correlation_all_and_bad_group(dma_client):
     assert dma_client.get("/api/dma/correlation").json()["n_trusts"] == 21
     assert dma_client.get("/api/dma/correlation?group=nope").status_code == 422
+
+
+def test_systems_master_layout_maps_via_fhi_id_and_skips_junk(client, monkeypatch):
+    from app import systems as sy
+    monkeypatch.setattr(sy, "fhi_to_ods", lambda: {"7": "RXX", "8": "RYY"})
+    hdr = "Trust_ID,Foundation_Trust_Name,Trust_Type,DepartmentName,SupplierName,SystemName,Has_System,Upd_Flag,Contract_expiration_notes\n"
+    body = hdr + "7,A,Acute,EPR,Acme,Acme EPR,Yes,,31/03/2028\n7,A,Acute,PACS,Pixel,P,Yes,,\n8,B,Acute,EPR,Beta,B EPR,Yes,,\n8,B,Acute,EPR,Old,O,Yes,D,\n9,C,Acute,EPR,Zed,Z,Yes,,\n8,B,Acute,Pharmacy,,,No,,\n"
+    r = client.post("/api/systems/import", files={"file": ("m.csv", io.BytesIO(body.encode()), "text/csv")}).json()
+    assert r["format"] == "master" and r["rows_loaded"] == 3 and r["unmapped_organisations"] == 1
+    assert r["skipped"]["deleted_flag"] == 1
+    o = client.get("/api/systems/options").json()
+    assert o["loaded"] and o["categories"][0] == {"category": "EPR", "trusts": 2}
+    assert {x["supplier"] for x in o["suppliers"]["EPR"]} == {"Acme", "Beta"}
+
+
+def test_dma_filter_by_epr_supplier(dma_client):
+    base = dma_client.get("/api/dma/correlation?group=acute").json()
+    assert base["systems_loaded"] and base["by_supplier_category"] == "EPR"
+    rows = {r["supplier"]: r for r in base["by_supplier"]}
+    assert rows["Alpha"]["n"] == 8 and rows["Beta"]["n"] == 8 and "Multiple suppliers" not in rows  # 2 multi-supplier trusts < minimum
+    assert rows["Beta"]["dma_median"] > rows["Alpha"]["dma_median"]
+    d = dma_client.get("/api/dma/correlation?group=acute&supplier=Alpha").json()
+    assert d["n_trusts"] == 10  # 8 single + 2 running both; by-supplier card still shows the whole group
+    assert len(d["by_supplier"]) == len(base["by_supplier"])
+    assert dma_client.get("/api/dma/correlation?group=acute&category=PACS").json()["n_trusts"] == 20
+    assert dma_client.get("/api/dma/correlation?supplier=Nobody").json()["n_trusts"] == 0
+    t = next(x for x in base["trusts"] if x["ods_code"] == "T17")
+    assert t["systems"]["EPR"] == ["Alpha", "Beta"]

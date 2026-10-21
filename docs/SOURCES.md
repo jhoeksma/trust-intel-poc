@@ -27,4 +27,5 @@ Record-level HES (needs DARS approval). Anything behind a login (including the f
 4. Add a row here and a line in CHANGELOG.
 
 | dma | Digital Maturity Assessment 2024 and 2025 (NHS England, published 30 Mar 2026) | Annual | data/manual/DMA - 2025 - Results data file v2.xlsx (seed, supplied by Jon) | No ODS codes in file: matched by name; overall score covers comparable domains only; pillars 2025 only; OGL v3 |
+| systems | FHI master installations database (Master_Data, 15 Oct 2026 export) | On demand | Uploaded via POST /api/systems/import (not in git) | Proprietary FHI data, database only. Joined by FHI Trust_ID to ODS through trusts_ods.csv; 263 organisations link, private/devolved/ICB rows unmapped |
 | nof (history) | NOF Q4 2025/26 trust data and league tables (NHS England) | Quarterly | https://www.england.nhs.uk/wp-content/uploads/2026/06/nhs-oversight-framework-*.csv | Holds Q1-Q4 2025/26; 2025/26 IDs mapped to 2026/27 where the quantity is the same; framework changed method in 2026/27 |

@@ -76,11 +76,12 @@ class TrustSystem(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ods_code: Mapped[str] = mapped_column(String(10), index=True)
-    category: Mapped[str | None] = mapped_column(String(80))  # e.g. EPR
+    category: Mapped[str | None] = mapped_column(String(80), index=True)  # department, e.g. EPR
     supplier: Mapped[str | None] = mapped_column(String(200))
     product: Mapped[str | None] = mapped_column(String(200))
     contract_end: Mapped[datetime | None] = mapped_column(Date)
     note: Mapped[str | None] = mapped_column(Text)
+    detail: Mapped[dict | None] = mapped_column(JSON)  # version, hosting, contract status, verified date ... (see app/systems.py)
     loaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

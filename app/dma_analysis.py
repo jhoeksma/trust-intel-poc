@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import benchmark
-from app.models import Metric, Org
+from app.models import Metric, Org, TrustSystem
 
 OUTCOMES = [
     # key, label, metric code, better direction, share-doing-well test (label, fn) or None, group for the UI
@@ -90,7 +90,43 @@ def _all_periods(db: Session, code: str) -> dict[str, dict[int, float]]:
     return out
 
 
-def analyse(db: Session, group: str | None = None, subtype: str | None = None) -> dict:
+MIN_SUPPLIER_N = 3  # a supplier needs this many single-supplier trusts to get its own row
+
+
+def _installed(db: Session) -> dict[str, dict[str, set]]:
+    """ods -> category -> set of suppliers, from the FHI master installations overlay (empty until loaded)."""
+    out: dict[str, dict[str, set]] = {}
+    for ods, cat, sup in db.execute(select(TrustSystem.ods_code, TrustSystem.category, TrustSystem.supplier)):
+        if cat and sup:
+            out.setdefault(ods, {}).setdefault(cat, set()).add(sup)
+    return out
+
+
+def _by_supplier(trusts: list[dict], category: str) -> list[dict]:
+    """Trusts grouped by the supplier of `category`. Trusts with several suppliers form one 'Multiple suppliers' bucket
+    rather than being counted under each (otherwise the groups overlap and the comparison means nothing)."""
+    buckets: dict[str, list] = {}
+    for t in trusts:
+        sups = t["systems"].get(category) or []
+        if sups:
+            buckets.setdefault(sups[0] if len(sups) == 1 else "Multiple suppliers", []).append(t)
+    rows = []
+    for sup, ts in buckets.items():
+        if len(ts) < MIN_SUPPLIER_N:
+            continue
+        row = {"supplier": sup, "n": len(ts), "dma_median": round(_median([t["dma"]["overall"] for t in ts]), 2)}
+        for key, field in (("nof_score", "nof_median"), ("fin_domain", "fin_median")):
+            vals = [t["outcomes"][key] for t in ts if key in t["outcomes"]]
+            row[field] = round(_median(vals), 2) if len(vals) >= MIN_SUPPLIER_N else None
+        cq = [t["outcomes"]["cqc_overall"] for t in ts if "cqc_overall" in t["outcomes"]]
+        row["cqc_good_pct"] = round(100 * sum(1 for v in cq if v >= 3) / len(cq), 1) if len(cq) >= MIN_SUPPLIER_N else None
+        rows.append(row)
+    rows.sort(key=lambda r: (r["supplier"] == "Multiple suppliers", -r["dma_median"]))
+    return rows
+
+
+def analyse(db: Session, group: str | None = None, subtype: str | None = None,
+            category: str | None = None, supplier: str | None = None) -> dict:
     groups, subs = benchmark.peer_groups(db), benchmark.subtypes(db)
     names = {o: n for o, n in db.execute(select(Org.ods_code, Org.name))}
     overall = _all_periods(db, "dma:overall")
@@ -98,7 +134,9 @@ def analyse(db: Session, group: str | None = None, subtype: str | None = None) -
     pillars = {k: benchmark.latest_values(db, "dma:pillar_" + k) for k, _ in PILLARS}
     outs = {key: benchmark.latest_values(db, code) for key, _, code, *_ in OUTCOMES}
 
-    trusts = []
+    installed = _installed(db)
+    cat = category or "EPR"  # a supplier filter without a category means EPR
+    trusts, in_scope = [], []
     for ods, per in overall.items():
         g = benchmark.group_of(groups, ods)
         if group and g != group:
@@ -116,7 +154,11 @@ def analyse(db: Session, group: str | None = None, subtype: str | None = None) -
             "ods_code": ods, "name": names.get(ods), "group": g, "subtype": subs.get(ods), "subtype_label": benchmark.SUBTYPE_LABELS.get(subs.get(ods)),
             "care_setting": SETTINGS.get(int(setting[ods]["value"])) if ods in setting else None,
             "dma": dma, "outcomes": {k: outs[k][ods]["value"] for k in outs if ods in outs[k]},
+            "systems": {c: sorted(v) for c, v in installed.get(ods, {}).items()},
         })
+    in_scope = list(trusts)  # after trust-group filters, before system filters: the by-supplier comparison stays whole
+    if category or supplier:
+        trusts = [t for t in trusts if t["systems"].get(cat) and (not supplier or supplier in t["systems"][cat])]
     trusts.sort(key=lambda t: -t["dma"]["overall"])
 
     corr: dict[str, dict] = {}
@@ -158,7 +200,10 @@ def analyse(db: Session, group: str | None = None, subtype: str | None = None) -
                 "median_now": round(_median([t["dma"]["overall"] for t in both]), 3),
                 "median_change": round(_median(ch), 3), "improved": sum(1 for c in ch if c > 0.05), "declined": sum(1 for c in ch if c < -0.05),
                 "flat": sum(1 for c in ch if -0.05 <= c <= 0.05)}
+    by_supplier = _by_supplier(in_scope, cat) if installed else []
     return {
+        "category": category, "supplier": supplier, "systems_loaded": bool(installed), "by_supplier": by_supplier,
+        "by_supplier_category": cat, "min_supplier_n": MIN_SUPPLIER_N,
         "group": group, "subtype": subtype, "n_trusts": len(trusts), "time": time, "min_n": MIN_N,
         "dma_measures": [{"key": k, "label": l} for k, l in DMA_MEASURES],
         "outcomes": [{"key": k, "label": l, "code": c, "better": b, "group": gr, "good_label": g[0] if g else None}

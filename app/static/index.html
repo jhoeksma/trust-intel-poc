@@ -397,17 +397,47 @@ function trendChart(t) {
 /* ---------- metric explorer ---------- */
 /* ---------- Digital maturity: do more mature trusts perform better? ---------- */
 function digitalView() {
-  getGroups().then(function () {
+  Promise.all([getGroups(), api('/api/systems/options')]).then(function (r) {
+    state.sysopt = r[1];
     main('<div class="card"><div class="ctl" style="flex-wrap:wrap">' +
-      '<label class="mute">Compare within<br><select id="dt" onchange="state.dtype=this.value;digitalLoad()">' + typeOptions(state.dtype) + '</select></label>' +
+      '<label class="mute">Trust group<br><select id="dt" onchange="state.dtype=this.value;digitalLoad()">' + typeOptions(state.dtype) + '</select></label>' +
+      sysControls() +
       '<span class="mute" style="max-width:640px">Digital maturity (NHS England DMA, 2025, 1 to 5) set against Oversight Framework, CQC and financial outcomes. The DMA and the Oversight Framework are both designed to be read within like-for-like groups, so acute trusts are the default.</span></div></div><div id="dm"></div>');
     digitalLoad();
   }).catch(fail);
 }
+function sysControls() {
+  var o = state.sysopt;
+  if (!o || !o.loaded) { return '<span class="mute" style="max-width:260px">Installed-systems data not loaded: upload the FHI master file to filter by supplier.</span>'; }
+  var cat = state.dsys || '', list = (o.suppliers[cat || 'EPR'] || []);
+  if (state.dsup && !list.some(function (x) { return x.supplier === state.dsup; })) { state.dsup = ''; }
+  return '<label class="mute">System<br><select id="dsys" onchange="state.dsys=this.value;state.dsup=\'\';digitalControls();digitalLoad()"><option value="">Any</option>' +
+    o.categories.map(function (c) { return '<option value="' + esc(c.category) + '"' + (c.category === cat ? ' selected' : '') + '>' + esc(c.category) + ' (' + c.trusts + ')</option>'; }).join('') + '</select></label>' +
+    '<label class="mute">' + esc(cat || 'EPR') + ' supplier<br><select id="dsup" onchange="state.dsup=this.value;digitalLoad()"><option value="">Any</option>' +
+    list.map(function (x) { return '<option value="' + esc(x.supplier) + '"' + (x.supplier === state.dsup ? ' selected' : '') + '>' + esc(x.supplier) + ' (' + x.trusts + ')</option>'; }).join('') + '</select></label>';
+}
+function digitalControls() {
+  var el = document.getElementById('dsup');
+  if (el) { el.parentNode.outerHTML = sysControls().split('</label>').slice(1).join('</label>'); }
+}
 function digitalLoad() {
-  var f = state.dtype || '', q = f.indexOf('g:') === 0 ? '?group=' + f.slice(2) : f.indexOf('s:') === 0 ? '?subtype=' + f.slice(2) : '';
+  var f = state.dtype || '', p = [];
+  if (f.indexOf('g:') === 0) { p.push('group=' + f.slice(2)); } else if (f.indexOf('s:') === 0) { p.push('subtype=' + f.slice(2)); }
+  if (state.dsys) { p.push('category=' + encodeURIComponent(state.dsys)); }
+  if (state.dsup) { p.push('supplier=' + encodeURIComponent(state.dsup)); }
   document.getElementById('dm').innerHTML = '<div class="card mute">Loading…</div>';
-  api('/api/dma/correlation' + q).then(function (d) { state.dma = d; digitalDraw(); }).catch(fail);
+  api('/api/dma/correlation' + (p.length ? '?' + p.join('&') : '')).then(function (d) { state.dma = d; digitalDraw(); }).catch(fail);
+}
+function supplierCard(d) {
+  if (!d.systems_loaded) { return ''; }
+  if (!d.by_supplier.length) { return '<div class="card"><h3 style="margin:0 0 4px">By ' + esc(d.by_supplier_category) + ' supplier</h3><p class="mute">No supplier has at least ' + d.min_supplier_n + ' trusts in this group.</p></div>'; }
+  var f = function (v, n) { return v == null ? '–' : num(v, n); };
+  return '<div class="card"><h3 style="margin:0 0 4px">By ' + esc(d.by_supplier_category) + ' supplier</h3>' +
+    '<p class="mute" style="margin:0 0 8px">Trusts in this group, by who supplies their ' + esc(d.by_supplier_category) + '. Medians, not averages. Trusts running more than one supplier sit in their own row. Suppliers with fewer than ' + d.min_supplier_n + ' trusts are left out. Supplier choice follows trust type, size and history, so read this as description, not as a league table of suppliers.</p>' +
+    '<div class="rankbox"><table><thead><tr><th>Supplier</th><th class="n">Trusts</th><th class="n">DMA median</th><th class="n">NOF score median</th><th class="n">Finance domain median</th><th class="n">CQC good or better</th></tr></thead><tbody>' +
+    d.by_supplier.map(function (r) {
+      return '<tr><td>' + esc(r.supplier) + '</td><td class="n">' + r.n + '</td><td class="n">' + num(r.dma_median, 2) + '</td><td class="n">' + f(r.nof_median, 2) + '</td><td class="n">' + f(r.fin_median, 2) + '</td><td class="n">' + (r.cqc_good_pct == null ? '–' : r.cqc_good_pct + '%') + '</td></tr>';
+    }).join('') + '</tbody></table></div></div>';
 }
 function dmaOutcome(d, k) { return d.outcomes.filter(function (o) { return o.key === k; })[0]; }
 function dmaMeasure(d, k) { return d.dma_measures.filter(function (o) { return o.key === k; })[0]; }
@@ -420,19 +450,20 @@ function verdict(c) {
 function digitalDraw() {
   var d = state.dma, el = document.getElementById('dm');
   if (!d.n_trusts) {
-    el.innerHTML = '<div class="card">No digital maturity scores are loaded for this group yet. Run a refresh of the <b>dma</b> source from the Sources tab.</div>';
+    el.innerHTML = '<div class="card">' + (state.dsys || state.dsup ? 'No trusts with a DMA score match this system and supplier in this group. Try Any.' : 'No digital maturity scores are loaded for this group yet. Run a refresh of the <b>dma</b> source from the Sources tab.') + '</div>';
     return;
   }
   var h = '<div class="card"><h3 style="margin:0 0 4px">Do more digitally mature trusts perform better?</h3>' +
     '<p class="mute" style="margin:0 0 8px">' + d.n_trusts + ' organisations with a DMA score. Each bar is a rank correlation between overall DMA score and the outcome, signed so that <b>right of the line always means more mature trusts do better</b>. Whiskers show the 95% interval; if they cross the line the link is not distinguishable from chance.</p>' + forest(d) + '</div>';
   h += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(420px,1fr))"><div class="card" id="dsc"></div><div class="card" id="dq"></div></div>';
   h += '<div class="card" id="dtime"></div>';
+  h += supplierCard(d);
   h += '<div class="card"><h3 style="margin:0 0 4px">Which pillars matter most?</h3><p class="mute" style="margin:0 0 8px">Rank correlation of each DMA measure with each outcome (green: more mature does better; red: does worse; grey: too few trusts). Click a cell to plot it above.</p><div class="wrap">' + heat(d) + '</div></div>';
   h += '<div class="card"><h3 style="margin:0 0 4px">Reading this carefully</h3><ul style="margin:6px 0 0 18px;padding:0">' + d.caveats.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ul></div>';
-  h += '<div class="card"><h3 style="margin:0 0 8px">Trusts by digital maturity</h3><div class="rankbox"><table><thead><tr><th>Trust</th><th>Type</th><th>DMA setting</th><th class="n">DMA 2025</th><th class="n">Change</th><th class="n">NOF segment</th><th class="n">NOF score</th><th>CQC</th></tr></thead><tbody>' +
+  h += '<div class="card"><h3 style="margin:0 0 8px">Trusts by digital maturity</h3><div class="rankbox"><table><thead><tr><th>Trust</th><th>Type</th><th>DMA setting</th><th>' + esc(d.by_supplier_category) + '</th><th class="n">DMA 2025</th><th class="n">Change</th><th class="n">NOF segment</th><th class="n">NOF score</th><th>CQC</th></tr></thead><tbody>' +
     d.trusts.map(function (t) {
       var o = t.outcomes, ch = t.dma.change;
-      return '<tr><td><a onclick="go(\'trust\',\'' + esc(t.ods_code) + '\')">' + esc(t.name || t.ods_code) + '</a></td><td class="mute">' + esc(t.subtype_label || groupLabel(t.group)) + '</td><td class="mute">' + esc(t.care_setting || '–') + '</td><td class="n">' + num(t.dma.overall, 2) +
+      return '<tr><td><a onclick="go(\'trust\',\'' + esc(t.ods_code) + '\')">' + esc(t.name || t.ods_code) + '</a></td><td class="mute">' + esc(t.subtype_label || groupLabel(t.group)) + '</td><td class="mute">' + esc(t.care_setting || '–') + '</td><td class="mute">' + esc((t.systems[d.by_supplier_category] || []).join(', ') || '–') + '</td><td class="n">' + num(t.dma.overall, 2) +
         '</td><td class="n ' + (ch > 0 ? 'up' : ch < 0 ? 'dn' : '') + '">' + (ch == null ? '–' : (ch > 0 ? '+' : '') + num(ch, 2)) + '</td><td class="n">' + (o.nof_segment == null ? '–' : o.nof_segment) + '</td><td class="n">' + num(o.nof_score, 2) + '</td><td>' + cqcPill(o.cqc_overall) + '</td></tr>';
     }).join('') + '</tbody></table></div></div>';
   el.innerHTML = h;

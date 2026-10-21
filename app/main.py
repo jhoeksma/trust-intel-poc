@@ -16,7 +16,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.orm import Session
 
-from app import benchmark, dma_analysis, indicators
+from app import benchmark, dma_analysis, indicators, systems
 from app.config import settings
 from app.db import get_db
 from app.models import Metric, Org, RefreshRun, SourceFile, TrustSystem
@@ -126,13 +126,14 @@ def benchmark_metric_trend(code: str, group: str | None = None, subtype: str | N
 
 
 @app.get("/api/dma/correlation", dependencies=[Depends(require_auth)])
-def dma_correlation(group: str | None = None, subtype: str | None = None, db: Session = Depends(get_db)):
+def dma_correlation(group: str | None = None, subtype: str | None = None, category: str | None = None,
+                    supplier: str | None = None, db: Session = Depends(get_db)):
     """Do more digitally mature trusts perform better? DMA scores against NOF, CQC and finance, with rank correlations and quartiles."""
     if group is not None and group not in benchmark.GROUP_LABELS:
         raise HTTPException(422, "group must be one of " + ", ".join(benchmark.GROUP_LABELS))
     if subtype is not None and subtype not in benchmark.SUBTYPE_LABELS:
         raise HTTPException(422, "subtype must be one of " + ", ".join(benchmark.SUBTYPE_LABELS))
-    return dma_analysis.analyse(db, group, subtype)
+    return dma_analysis.analyse(db, group, subtype, category or None, supplier or None)
 
 
 @app.get("/api/benchmark/trust/{ods}", dependencies=[Depends(require_auth)])
@@ -236,6 +237,12 @@ def trigger_refresh(bg: BackgroundTasks, source: str | None = None):
     return {"started": True, "source": source or "all"}
 
 
+@app.get("/api/systems/options")
+def systems_options(db: Session = Depends(get_db)):
+    """Categories (EPR first) with trust counts, and suppliers per category. loaded=false until the master file is uploaded."""
+    return systems.options(db)
+
+
 @app.post("/api/systems/import", dependencies=[Depends(require_auth)])
 async def import_systems(file: UploadFile = File(...), replace: bool = True, db: Session = Depends(get_db)):
     """Load the trust-to-supplier overlay from CSV.
@@ -244,10 +251,20 @@ async def import_systems(file: UploadFile = File(...), replace: bool = True, db:
     supplier, product, contract_end (YYYY-MM-DD or DD/MM/YYYY), note.
     Proprietary data: lives in the database only, never in git.
     """
-    text = (await file.read()).decode("utf-8-sig", errors="replace")
+    raw = await file.read()
+    text = raw.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
     if not reader.fieldnames:
         raise HTTPException(400, "Empty CSV")
+    if {"Trust_ID", "DepartmentName", "SupplierName"} <= set(reader.fieldnames):
+        # FHI master installations layout: full snapshot, mapped to ODS via fhi_trust_id
+        try:
+            mrows, report = systems.parse_master(raw)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        report.update(systems.replace_all(db, mrows))
+        report["format"] = "master"
+        return report
     cols = {c.strip().lower().replace(" ", "_"): c for c in reader.fieldnames}
     if "ods_code" not in cols:
         raise HTTPException(400, f"Need an ods_code column; got {list(cols)}")

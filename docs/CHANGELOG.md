@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.0 - 2026-10-21
+
+- Installed systems: FHI's master installations file (department-level systems, suppliers, contract notes) loads into `trust_systems`. `POST /api/systems/import` detects the master layout (Trust_ID, DepartmentName, SupplierName) and replaces the table as a full snapshot; the older simple CSV (ods_code, category, supplier ...) still works. `python -m scripts.load_systems file.csv` does the same locally. The data is proprietary and lives in the database only; nothing is committed.
+- ODS linkage: FHI `Trust_ID` maps to ODS through `fhi_trust_id` in `trusts_ods.csv`. On the real file, 263 organisations link (11,403 system rows); 196 organisations are not in the reference list (private providers, devolved nations, ICBs) and are reported, not guessed. Rows with Upd_Flag D, no system or no supplier are skipped and counted.
+- Migration 0002: `trust_systems.detail` (JSON for version, hosting, renewal, procurement framework etc.) and an index on `category`. Verify it ran after deploy.
+- Digital maturity tab: new System and Supplier filters beside Trust group (default supplier list is EPR), an EPR column in the trust table, and a "By EPR supplier" card (medians of DMA, NOF score, finance domain and CQC good-or-better share; trusts on several suppliers in their own row; suppliers under 3 trusts left out). `GET /api/dma/correlation` takes `category` and `supplier`; `GET /api/systems/options` lists categories and suppliers with trust counts.
+- Tests: 71 passing.
+
 ## 0.12.0 - 2026-10-21
 
 - NOF history: the three Q4 2025/26 trust-data CSVs and three league tables are seeded by URL (`NOF_2025_26` in the registry). Each trust-data file holds all four 2025/26 quarters for every trust (134 acute, 61 mental health and community, 10 ambulance), so Q1 to Q4 2025/26 now sit alongside Q1 2026/27. URLs read through Chrome from NHS England's csv metadata pages for Q1 to Q4 2025/26; the Q1 2025/26 file has no Quarter column and is not needed because Q4's file repeats Q1.

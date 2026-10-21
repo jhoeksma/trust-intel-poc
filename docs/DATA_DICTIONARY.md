@@ -3,7 +3,7 @@
 - **orgs**: ods_code (key), name, org_type, current_code (successor, once known), first_seen_source.
 - **source_files**: one row per file attempted. status, mapper_status (ok, generic, needs_review), sha256, url, row and metric counts, profile (columns, detected roles, sample rows, periods), error, licence.
 - **metrics**: ods_code, source_key, metric_code (`<source>:<slug>`), label, period (display), period_sort (YYYYMM of period start; financial years start in April), period_type, value, unit, source_file_id, quality_flag.
-- **trust_systems**: FHI overlay: ods_code, category, supplier, product, contract_end, note. Proprietary.
+- **trust_systems**: FHI overlay: ods_code, category (department, e.g. EPR, PACS), supplier, product, contract_end (only when the expiry note is a date), note, detail (JSON: version, hosting, renewal, framework, contract status ...). Proprietary, database only.
 - **refresh_runs**: status, trigger, summary, log.
 
 ## Metric codes
