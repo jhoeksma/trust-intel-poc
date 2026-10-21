@@ -33,7 +33,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from app.periods import Period, parse_period
-from app.sources.loaders import LOADER_VERSION, UNKNOWN_PERIOD, LoadResult, _metric
+from app.sources.loaders import LOADER_VERSION, overrides_fingerprint, UNKNOWN_PERIOD, LoadResult, _metric
 from app.sources.ods import iter_ods
 
 OVERRIDES = Path(__file__).resolve().parents[2] / "data" / "reference" / "cqc_overrides.csv"
@@ -101,6 +101,7 @@ def load_cqc(source_key: str, file_name: str, data: bytes, default_period: str |
         rows.append(dict(zip(hdr, row)))
     profile = {"file": unquote(file_name), "shape": "cqc_ratings", "loader_version": LOADER_VERSION, "notes": [], "provider_rows": len(rows)}
     result.profile = profile
+    profile["overrides_sha"] = overrides_fingerprint("cqc")
     if not rows:
         profile["notes"] = ["no 'Providers' sheet or no rows; nothing loaded"]
         result.mapper_status = "needs_review"

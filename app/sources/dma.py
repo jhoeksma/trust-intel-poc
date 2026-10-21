@@ -28,7 +28,7 @@ from urllib.parse import unquote
 
 from app.periods import Period
 from app.sources.cqc import _known_from_db, norm_name
-from app.sources.loaders import LOADER_VERSION, LoadResult, _metric
+from app.sources.loaders import LOADER_VERSION, overrides_fingerprint, LoadResult, _metric
 
 OVERRIDES = Path(__file__).resolve().parents[2] / "data" / "reference" / "dma_overrides.csv"
 SCALE = "1-5 scale, higher is more mature"
@@ -85,6 +85,7 @@ def load_dma(source_key: str, file_name: str, data: bytes, default_period: str |
     result = LoadResult()
     profile = {"file": unquote(file_name), "shape": "dma_workbook", "loader_version": LOADER_VERSION, "notes": []}
     result.profile = profile
+    profile["overrides_sha"] = overrides_fingerprint("dma")
     wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     _, pillar_rows = _sheet_rows(wb, "SC - 2025 Pillar")
     _, overall_rows = _sheet_rows(wb, "SC - 24 vs 25")

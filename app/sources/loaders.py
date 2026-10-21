@@ -482,3 +482,14 @@ def get_loader(name: str):
         from app.sources.nof import load_nof
         return load_nof
     return LOADERS.get(name, load_generic)
+
+
+def overrides_fingerprint(source_key: str) -> str | None:
+    """Short hash of a source's hand-fix file, so editing it forces that source (only) to reload."""
+    import hashlib
+    from pathlib import Path
+    name = {"dma": "dma_overrides.csv", "cqc": "cqc_overrides.csv"}.get(source_key)
+    if not name:
+        return None
+    f = Path(__file__).resolve().parents[2] / "data" / "reference" / name
+    return hashlib.sha256(f.read_bytes()).hexdigest()[:12] if f.exists() else "none"

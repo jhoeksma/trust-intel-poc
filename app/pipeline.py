@@ -19,7 +19,7 @@ from app.models import Metric, Org, RefreshRun, SourceFile
 from app.reference import seed_orgs
 from app.sources import fetch
 from app.sources.discover import discover
-from app.sources.loaders import LOADER_VERSION, LoadResult, get_loader
+from app.sources.loaders import LOADER_VERSION, LoadResult, get_loader, overrides_fingerprint
 from app.sources.registry import SOURCES, SourceSpec
 
 log = logging.getLogger("pipeline")
@@ -110,7 +110,7 @@ def run_source(db: Session, key: str) -> dict:
             prior = [p for (p,) in db.execute(select(SourceFile.profile).where(
                 SourceFile.source_key == key, SourceFile.file_name.in_({name, quote(name)}),
                 SourceFile.sha256 == fetch.sha256(blob), SourceFile.status == "loaded"))
-                if (p or {}).get("loader_version") == LOADER_VERSION]
+                if (p or {}).get("loader_version") == LOADER_VERSION and (p or {}).get("overrides_sha") == overrides_fingerprint(key)]
             if prior:
                 summary["unchanged"] += 1
                 continue

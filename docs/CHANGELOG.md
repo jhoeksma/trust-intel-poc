@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.1 - 2026-10-21
+
+- DMA live: 203 of 204 trusts matched on the first load. "Royal Devon University Healthcare" matched two codes (RBZ, RH8); override to RH8 added.
+- Editing a hand-fix file (`dma_overrides.csv`, `cqc_overrides.csv`) now reloads that source alone: the file's fingerprint is stored in its profile and compared on refresh, so no global LOADER_VERSION bump is needed. CQC reloads once on the next refresh.
+
 ## 0.11.0 - 2026-10-21
 
 - New source `dma`: NHS England Digital Maturity Assessment 2024 and 2025 results data file v2 (published 30 March 2026, supplied by Jon, committed under data/manual). Loads the overall score for 2025 and 2024 (`dma:overall`, comparable domains only) and the seven 2025 pillar scores (`dma:pillar_*`: well led, smart foundations, safe practice, support workforce, empower people, improve care, healthy populations), plus `dma:care_setting`. Scores are 1 to 5. ICB sheets are not loaded.
