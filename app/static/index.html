@@ -48,8 +48,8 @@ tr.me td{background:var(--bg);font-weight:600}
 <nav id="nav"></nav><span class="mute" style="margin-left:auto">Internal spike. Public NHS data joined by ODS code.</span></header>
 <main id="main"></main>
 <script>
-var state = {tab: 'dashboard', trusts: [], sort: 'strain', dir: -1, filter: '', cmp: [], fields: null, scope: null, cat: null, gopts: null, typeFilter: '', eview: 'snapshot', emonths: 24};
-var TABS = [['dashboard', 'Dashboard'], ['trust', 'Trust dashboard'], ['explorer', 'Explorer'], ['compare', 'Compare'], ['sources', 'Sources']];
+var state = {tab: 'dashboard', trusts: [], sort: 'strain', dir: -1, filter: '', cmp: [], fields: null, scope: null, cat: null, gopts: null, typeFilter: '', eview: 'snapshot', emonths: 24, dtype: 'g:acute', dx: 'overall', dy: 'nof_score'};
+var TABS = [['dashboard', 'Dashboard'], ['trust', 'Trust dashboard'], ['explorer', 'Explorer'], ['digital', 'Digital maturity'], ['compare', 'Compare'], ['sources', 'Sources']];
 
 function api(path, opts) {
   return fetch(path, opts).then(function (r) {
@@ -73,6 +73,7 @@ function go(tab, arg) {
   if (tab === 'dashboard') { return dashboard(); }
   if (tab === 'trust') { return trustView(arg || state.current); }
   if (tab === 'explorer') { return explorerView(arg); }
+  if (tab === 'digital') { return digitalView(); }
   if (tab === 'compare') { return compareView(); }
   if (tab === 'sources') { return sourcesView(); }
 }
@@ -384,6 +385,143 @@ function trendChart(t) {
 }
 
 /* ---------- metric explorer ---------- */
+/* ---------- Digital maturity: do more mature trusts perform better? ---------- */
+function digitalView() {
+  getGroups().then(function () {
+    main('<div class="card"><div class="ctl" style="flex-wrap:wrap">' +
+      '<label class="mute">Compare within<br><select id="dt" onchange="state.dtype=this.value;digitalLoad()">' + typeOptions(state.dtype) + '</select></label>' +
+      '<span class="mute" style="max-width:640px">Digital maturity (NHS England DMA, 2025, 1 to 5) set against Oversight Framework, CQC and financial outcomes. The DMA and the Oversight Framework are both designed to be read within like-for-like groups, so acute trusts are the default.</span></div></div><div id="dm"></div>');
+    digitalLoad();
+  }).catch(fail);
+}
+function digitalLoad() {
+  var f = state.dtype || '', q = f.indexOf('g:') === 0 ? '?group=' + f.slice(2) : f.indexOf('s:') === 0 ? '?subtype=' + f.slice(2) : '';
+  document.getElementById('dm').innerHTML = '<div class="card mute">Loading…</div>';
+  api('/api/dma/correlation' + q).then(function (d) { state.dma = d; digitalDraw(); }).catch(fail);
+}
+function dmaOutcome(d, k) { return d.outcomes.filter(function (o) { return o.key === k; })[0]; }
+function dmaMeasure(d, k) { return d.dma_measures.filter(function (o) { return o.key === k; })[0]; }
+function verdict(c) {
+  if (!c) { return ['No data', 'mute']; }
+  if (c.lo > 0) { return ['More mature trusts do better', 'up']; }
+  if (c.hi < 0) { return ['More mature trusts do worse', 'dn']; }
+  return ['No clear link', 'mute'];
+}
+function digitalDraw() {
+  var d = state.dma, el = document.getElementById('dm');
+  if (!d.n_trusts) {
+    el.innerHTML = '<div class="card">No digital maturity scores are loaded for this group yet. Run a refresh of the <b>dma</b> source from the Sources tab.</div>';
+    return;
+  }
+  var h = '<div class="card"><h3 style="margin:0 0 4px">Do more digitally mature trusts perform better?</h3>' +
+    '<p class="mute" style="margin:0 0 8px">' + d.n_trusts + ' organisations with a DMA score. Each bar is a rank correlation between overall DMA score and the outcome, signed so that <b>right of the line always means more mature trusts do better</b>. Whiskers show the 95% interval; if they cross the line the link is not distinguishable from chance.</p>' + forest(d) + '</div>';
+  h += '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(420px,1fr))"><div class="card" id="dsc"></div><div class="card" id="dq"></div></div>';
+  h += '<div class="card"><h3 style="margin:0 0 4px">Which pillars matter most?</h3><p class="mute" style="margin:0 0 8px">Rank correlation of each DMA measure with each outcome (green: more mature does better; red: does worse; grey: too few trusts). Click a cell to plot it above.</p><div class="wrap">' + heat(d) + '</div></div>';
+  h += '<div class="card"><h3 style="margin:0 0 4px">Reading this carefully</h3><ul style="margin:6px 0 0 18px;padding:0">' + d.caveats.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ul></div>';
+  h += '<div class="card"><h3 style="margin:0 0 8px">Trusts by digital maturity</h3><div class="rankbox"><table><thead><tr><th>Trust</th><th>Type</th><th>DMA setting</th><th class="n">DMA 2025</th><th class="n">Change</th><th class="n">NOF segment</th><th class="n">NOF score</th><th>CQC</th></tr></thead><tbody>' +
+    d.trusts.map(function (t) {
+      var o = t.outcomes, ch = t.dma.change;
+      return '<tr><td><a onclick="go(\'trust\',\'' + esc(t.ods_code) + '\')">' + esc(t.name || t.ods_code) + '</a></td><td class="mute">' + esc(t.subtype_label || groupLabel(t.group)) + '</td><td class="mute">' + esc(t.care_setting || '–') + '</td><td class="n">' + num(t.dma.overall, 2) +
+        '</td><td class="n ' + (ch > 0 ? 'up' : ch < 0 ? 'dn' : '') + '">' + (ch == null ? '–' : (ch > 0 ? '+' : '') + num(ch, 2)) + '</td><td class="n">' + (o.nof_segment == null ? '–' : o.nof_segment) + '</td><td class="n">' + num(o.nof_score, 2) + '</td><td>' + cqcPill(o.cqc_overall) + '</td></tr>';
+    }).join('') + '</tbody></table></div></div>';
+  el.innerHTML = h;
+  digitalPlots();
+}
+function forest(d) {
+  var rows = d.outcomes, W = 1000, L = 350, R = 330, rh = 30, H = rows.length * rh + 34, x0 = L, x1 = W - R, mid = (x0 + x1) / 2;
+  var X = function (r) { return mid + (x1 - x0) / 2 * r; };
+  var h = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Correlation of digital maturity with each outcome">';
+  [-0.5, 0.5].forEach(function (t) { h += '<line x1="' + X(t) + '" x2="' + X(t) + '" y1="18" y2="' + (H - 16) + '" stroke="var(--line)"/><text class="ax" x="' + X(t) + '" y="12" text-anchor="middle">' + (t > 0 ? '+' : '') + t + '</text>'; });
+  h += '<line x1="' + mid + '" x2="' + mid + '" y1="18" y2="' + (H - 16) + '" stroke="var(--mute)"/><text class="ax" x="' + mid + '" y="12" text-anchor="middle">0</text>';
+  var lastGroup = null;
+  rows.forEach(function (o, i) {
+    var y = 34 + i * rh, c = d.correlations.overall[o.key], v = verdict(c), col = v[1] === 'up' ? 'var(--s1)' : v[1] === 'dn' ? 'var(--s5)' : 'var(--dot)';
+    if (o.group !== lastGroup) { lastGroup = o.group; }
+    h += '<text class="ax" x="' + (L - 12) + '" y="' + (y + 4) + '" text-anchor="end" style="font-size:12.5px;fill:var(--ink)">' + esc(o.label.length > 54 ? o.label.slice(0, 53) + '…' : o.label) + '</text>';
+    if (c) {
+      h += '<line x1="' + X(c.lo) + '" x2="' + X(c.hi) + '" y1="' + y + '" y2="' + y + '" stroke="' + col + '" stroke-width="3" stroke-linecap="round"/>' +
+        '<circle cx="' + X(c.rho) + '" cy="' + y + '" r="6" fill="' + col + '" stroke="var(--card)" stroke-width="2"><title>' + esc(o.label + ': rho ' + c.rho + ' (95% ' + c.lo + ' to ' + c.hi + '), n=' + c.n) + '</title></circle>';
+    }
+    h += '<text class="ax" x="' + (x1 + 14) + '" y="' + (y + 4) + '" style="font-size:12.5px;fill:var(--ink)">' + (c ? (c.rho > 0 ? '+' : '') + c.rho.toFixed(2) + '  n=' + c.n : '–') + '</text>' +
+      '<text class="ax" x="' + (x1 + 100) + '" y="' + (y + 4) + '" style="font-size:12px">' + esc(v[0]) + '</text>';
+    h += '<rect x="0" y="' + (y - rh / 2) + '" width="' + W + '" height="' + rh + '" fill="transparent" style="cursor:pointer" onclick="state.dx=\'overall\';state.dy=\'' + o.key + '\';digitalPlots()"/>';
+  });
+  h += '<text class="ax" x="' + x0 + '" y="' + (H - 2) + '">◀ worse</text><text class="ax" x="' + x1 + '" y="' + (H - 2) + '" text-anchor="end">better ▶</text>';
+  return h + '</svg>';
+}
+function heat(d) {
+  var h = '<table><thead><tr><th>DMA measure</th>' + d.outcomes.map(function (o) { return '<th style="white-space:normal;max-width:110px;font-size:12px;cursor:default">' + esc(o.label) + '</th>'; }).join('') + '</tr></thead><tbody>';
+  d.dma_measures.forEach(function (m) {
+    h += '<tr><td>' + esc(m.label) + '</td>';
+    d.outcomes.forEach(function (o) {
+      var c = d.correlations[m.key][o.key];
+      if (!c) { h += '<td class="mute" style="text-align:center">–</td>'; return; }
+      var a = Math.min(1, Math.abs(c.rho) / 0.6) * 70, sig = c.lo > 0 || c.hi < 0;
+      h += '<td style="text-align:center;cursor:pointer;background:color-mix(in srgb,' + (c.rho >= 0 ? 'var(--s1)' : 'var(--s5)') + ' ' + a.toFixed(0) + '%,transparent);' + (sig ? 'font-weight:700' : 'color:var(--mute)') +
+        '" title="n=' + c.n + ', 95% interval ' + c.lo + ' to ' + c.hi + '" onclick="state.dx=\'' + m.key + '\';state.dy=\'' + o.key + '\';digitalPlots()">' + (c.rho > 0 ? '+' : '') + c.rho.toFixed(2) + '</td>';
+    });
+    h += '</tr>';
+  });
+  return h + '</tbody></table><p class="mute" style="font-size:12px;margin:6px 0 0">Bold: the 95% interval excludes zero.</p>';
+}
+function digitalPlots() {
+  var d = state.dma, o = dmaOutcome(d, state.dy) || d.outcomes[0], m = dmaMeasure(d, state.dx) || d.dma_measures[0];
+  state.dy = o.key; state.dx = m.key;
+  var opts = d.outcomes.map(function (x) { return '<option value="' + x.key + '"' + (x.key === o.key ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('');
+  var mopts = d.dma_measures.map(function (x) { return '<option value="' + x.key + '"' + (x.key === m.key ? ' selected' : '') + '>' + esc(x.label) + '</option>'; }).join('');
+  var c = d.correlations[m.key][o.key], v = verdict(c);
+  document.getElementById('dsc').innerHTML = '<div class="ctl" style="flex-wrap:wrap;margin-bottom:6px"><label class="mute">Outcome<br><select onchange="state.dy=this.value;digitalPlots()" style="max-width:260px">' + opts + '</select></label>' +
+    '<label class="mute">DMA measure<br><select onchange="state.dx=this.value;digitalPlots()" style="max-width:260px">' + mopts + '</select></label></div>' +
+    '<div class="callout"><b class="' + v[1] + '">' + esc(v[0]) + '</b>' + (c ? ' · rank correlation ' + (c.rho > 0 ? '+' : '') + c.rho.toFixed(2) + ' (95% ' + c.lo.toFixed(2) + ' to ' + c.hi.toFixed(2) + '), ' + c.n + ' trusts' : '') + '</div>' + scatter(d, m, o);
+  var q = d.quartiles[o.key] || [];
+  document.getElementById('dq').innerHTML = '<h3 style="margin:0 0 4px">' + esc(o.label) + ' by DMA quartile</h3><p class="mute" style="margin:0 0 8px">Trusts ranked by overall DMA score and cut into four equal groups.' + (o.better === 'lower' ? ' Lower is better here.' : ' Higher is better here.') + '</p>' + quartileBars(d, o, q);
+}
+function scatter(d, m, o) {
+  var pts = d.trusts.filter(function (t) { return t.dma[m.key] != null && t.outcomes[o.key] != null; });
+  if (pts.length < 3) { return '<p class="mute">Too few trusts have both values.</p>'; }
+  var W = 560, H = 360, pl = 52, pr = 14, pt = 14, pb = 44, xs = pts.map(function (t) { return t.dma[m.key]; }), ys = pts.map(function (t) { return t.outcomes[o.key]; });
+  var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+  if (x1 === x0) { x1 += 1; } if (y1 === y0) { y1 += 1; }
+  var padx = (x1 - x0) * 0.04, pady = (y1 - y0) * 0.06; x0 -= padx; x1 += padx; y0 -= pady; y1 += pady;
+  var inv = o.better === 'lower'; /* good is always at the top */
+  var X = function (v) { return pl + (W - pl - pr) * (v - x0) / (x1 - x0); };
+  var Y = function (v) { var f = (v - y0) / (y1 - y0); return pt + (H - pt - pb) * (inv ? f : 1 - f); };
+  var n = pts.length, mx = xs.reduce(function (a, b) { return a + b; }, 0) / n, my = ys.reduce(function (a, b) { return a + b; }, 0) / n, sxy = 0, sxx = 0, i;
+  for (i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) * (xs[i] - mx); }
+  var slope = sxx ? sxy / sxx : 0, b0 = my - slope * mx;
+  var h = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Scatter of ' + esc(m.label) + ' against ' + esc(o.label) + '">';
+  [0, 1, 2, 3, 4].forEach(function (k) {
+    var yv = y0 + (y1 - y0) * k / 4, xv = x0 + (x1 - x0) * k / 4;
+    h += '<line x1="' + pl + '" x2="' + (W - pr) + '" y1="' + Y(yv) + '" y2="' + Y(yv) + '" stroke="var(--line)"/><text class="ax" x="' + (pl - 6) + '" y="' + (Y(yv) + 4) + '" text-anchor="end">' + esc(num(yv, Math.abs(y1 - y0) < 5 ? 2 : 0)) + '</text>' +
+      '<text class="ax" x="' + X(xv) + '" y="' + (H - pb + 16) + '" text-anchor="middle">' + esc(num(xv, 2)) + '</text>';
+  });
+  h += '<line x1="' + X(x0) + '" y1="' + Y(b0 + slope * x0) + '" x2="' + X(x1) + '" y2="' + Y(b0 + slope * x1) + '" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 4"/>';
+  pts.forEach(function (t) {
+    h += '<circle cx="' + X(t.dma[m.key]).toFixed(1) + '" cy="' + Y(t.outcomes[o.key]).toFixed(1) + '" r="4.5" fill="var(--dot)" fill-opacity=".7" stroke="var(--card)" style="cursor:pointer" onclick="go(\'trust\',\'' + esc(t.ods_code) + '\')"><title>' +
+      esc((t.name || t.ods_code) + ' · ' + m.label + ' ' + num(t.dma[m.key], 2) + ' · ' + o.label + ' ' + num(t.outcomes[o.key], 2)) + '</title></circle>';
+  });
+  h += '<text class="ax" x="' + ((pl + W - pr) / 2) + '" y="' + (H - 6) + '" text-anchor="middle">' + esc(m.label) + ' →  more mature</text>';
+  h += '<text class="ax" transform="translate(12 ' + ((pt + H - pb) / 2) + ') rotate(-90)" text-anchor="middle">' + esc(o.label.length > 44 ? o.label.slice(0, 43) + '…' : o.label) + ' (better ↑)</text>';
+  return h + '</svg><p class="mute" style="font-size:12px;margin:2px 0 0">Each dot is a trust (click to open). Dashed line: straight-line fit, for guidance. The better end of every outcome is at the top.</p>';
+}
+function quartileBars(d, o, q) {
+  if (!q.length) { return '<p class="mute">Too few trusts to form quartiles.</p>'; }
+  var W = 560, rh = 44, H = q.length * rh + 8, lo = Math.min.apply(null, q.map(function (r) { return r.mean; })), hi = Math.max.apply(null, q.map(function (r) { return r.mean; })), L = 190, R = 90;
+  var base = Math.min(0, lo), span = (hi - base) || 1;
+  var names = ['Least mature quarter', 'Second quarter', 'Third quarter', 'Most mature quarter'];
+  var h = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(o.label) + ' by DMA quartile">';
+  q.forEach(function (r, i) {
+    var y = 4 + i * rh, w = Math.max(2, (W - L - R) * (r.mean - base) / span), col = i === 3 ? 'var(--s1)' : i === 0 ? 'var(--s4)' : 'var(--dot)';
+    h += '<text class="ax" x="' + (L - 10) + '" y="' + (y + 16) + '" text-anchor="end" style="font-size:12.5px;fill:var(--ink)">' + names[r.q - 1] + '</text>' +
+      '<text class="ax" x="' + (L - 10) + '" y="' + (y + 31) + '" text-anchor="end">DMA ' + num(r.dma_min, 2) + ' to ' + num(r.dma_max, 2) + ' · n=' + r.n + '</text>' +
+      '<rect x="' + L + '" y="' + (y + 6) + '" width="' + w.toFixed(1) + '" height="22" rx="4" fill="' + col + '"/>' +
+      '<text class="ax" x="' + (L + w + 8) + '" y="' + (y + 22) + '" style="font-size:12.5px;fill:var(--ink)">' + num(r.mean, 2) + '</text>';
+    if (r.good_pct != null) { h += '<text class="ax" x="' + (W - 6) + '" y="' + (y + 22) + '" text-anchor="end">' + r.good_pct + '% ' + esc(o.good_label || '') + '</text>'; }
+  });
+  var a = q[0], z = q[q.length - 1], diff = z.mean - a.mean, better = o.better === 'lower' ? diff < 0 : diff > 0;
+  return h + '</svg><p style="margin:6px 0 0">Most mature quarter averages <b>' + num(z.mean, 2) + '</b> against <b>' + num(a.mean, 2) + '</b> for the least mature (<span class="' + (better ? 'up' : 'dn') + '">' + (better ? 'better' : 'worse') + ' by ' + num(Math.abs(diff), 2) + '</span>). Bars show the mean; read alongside the correlation, not instead of it.</p>';
+}
+
 function explorerView(code) {
   Promise.all([getCatalogue(), getTrusts(), getGroups()]).then(function (res) {
     var cat = res[0];

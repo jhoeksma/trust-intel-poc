@@ -267,3 +267,53 @@ def test_metric_trend_group_series(subs, db):
     assert subs.get("/api/benchmark/metric/trend?code=rtt:pct_within_18_weeks&months=1").json()["periods_shown"] == 1
     assert subs.get("/api/benchmark/metric/trend?code=nope").status_code == 404
     assert subs.get("/api/benchmark/metric/trend?code=rtt:pct_within_18_weeks&subtype=x").status_code == 422
+
+
+@pytest.fixture()
+def dma_client(db):
+    """20 acute trusts: higher DMA goes with better (lower) NOF score and higher CQC rating; plus one ambulance trust."""
+    from app.main import app
+    sf = SourceFile(source_key="dma", status="loaded")
+    db.add(sf)
+    db.flush()
+    rows = []
+
+    def m(org, code, per, sort, val):
+        rows.append(Metric(ods_code=org, source_key=code.split(":")[0], metric_code=code, metric_label=code, period=per,
+                           period_sort=sort, period_type="year", value=val, source_file_id=sf.id))
+    for i in range(20):
+        o = f"T{i:02d}"
+        db.add(Org(ods_code=o, name=f"Trust {i}"))
+        m(o, "dma:overall", "2025", 202504, 1.5 + i * 0.1)
+        m(o, "dma:overall", "2024", 202404, 1.4 + i * 0.1)
+        m(o, "dma:pillar_well_led", "2025", 202504, 2 + (i % 5) * 0.1)
+        m(o, "dma:care_setting", "2025", 202504, 1)
+        m(o, "nof:peer_group", "Q1 2026/27", 202604, 1)
+        m(o, "nof:of5202", "Q1 2026/27", 202604, 3.5 - i * 0.05)  # lower is better
+        m(o, "nof:of5200", "Q1 2026/27", 202604, 4 if i < 5 else 3 if i < 10 else 2 if i < 15 else 1)
+        m(o, "cqc:overall", "2026-10", 202610, 2 if i < 10 else 3)
+    db.add(Org(ods_code="AMB", name="Ambulance"))
+    m("AMB", "dma:overall", "2025", 202504, 3.0)
+    m("AMB", "nof:peer_group", "Q1 2026/27", 202604, 3)
+    db.add_all(rows)
+    db.commit()
+    return TestClient(app)
+
+
+def test_dma_correlation_signs_and_quartiles(dma_client):
+    d = dma_client.get("/api/dma/correlation?group=acute").json()
+    assert d["n_trusts"] == 20  # ambulance trust filtered out
+    nof = d["correlations"]["overall"]["nof_score"]
+    assert nof["rho"] > 0.95 and nof["lo"] <= nof["rho"] <= nof["hi"]  # positive means more mature does better, even though lower is better
+    assert d["correlations"]["overall"]["cqc_overall"]["rho"] > 0.6
+    assert d["correlations"]["overall"]["fin_domain"] is None  # no data, no invented correlation
+    q = d["quartiles"]["nof_score"]
+    assert [r["q"] for r in q] == [1, 2, 3, 4] and q[0]["mean"] > q[3]["mean"]  # least mature quartile has the worse (higher) score
+    assert d["quartiles"]["cqc_overall"][3]["good_pct"] == 100.0 and d["quartiles"]["cqc_overall"][0]["good_pct"] == 0.0
+    t = d["trusts"][0]
+    assert t["ods_code"] == "T19" and t["dma"]["change"] == pytest.approx(0.1) and t["care_setting"] == "Acute"
+
+
+def test_dma_correlation_all_and_bad_group(dma_client):
+    assert dma_client.get("/api/dma/correlation").json()["n_trusts"] == 21
+    assert dma_client.get("/api/dma/correlation?group=nope").status_code == 422

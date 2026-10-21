@@ -16,7 +16,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.orm import Session
 
-from app import benchmark, indicators
+from app import benchmark, dma_analysis, indicators
 from app.config import settings
 from app.db import get_db
 from app.models import Metric, Org, RefreshRun, SourceFile, TrustSystem
@@ -123,6 +123,16 @@ def benchmark_metric_trend(code: str, group: str | None = None, subtype: str | N
     if out is None:
         raise HTTPException(404, "Unknown or too sparse metric (needs at least 10 organisations)")
     return out
+
+
+@app.get("/api/dma/correlation", dependencies=[Depends(require_auth)])
+def dma_correlation(group: str | None = None, subtype: str | None = None, db: Session = Depends(get_db)):
+    """Do more digitally mature trusts perform better? DMA scores against NOF, CQC and finance, with rank correlations and quartiles."""
+    if group is not None and group not in benchmark.GROUP_LABELS:
+        raise HTTPException(422, "group must be one of " + ", ".join(benchmark.GROUP_LABELS))
+    if subtype is not None and subtype not in benchmark.SUBTYPE_LABELS:
+        raise HTTPException(422, "subtype must be one of " + ", ".join(benchmark.SUBTYPE_LABELS))
+    return dma_analysis.analyse(db, group, subtype)
 
 
 @app.get("/api/benchmark/trust/{ods}", dependencies=[Depends(require_auth)])

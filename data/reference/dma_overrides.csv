@@ -1,0 +1,14 @@
+provider_name,ods_code,note
+Portsmouth Hospitals University National Health Service Trust,RHU,Renamed; same trust
+Sandwell and West Birmingham Hospitals NHS Trust,RXK,Renamed; same trust
+Sheffield Health & Social Care NHS Foundation Trust,TAH,Renamed Sheffield Health Partnership; same trust
+South West Yorkshire Partnership NHS Foundation Trust,RXG,Renamed Teaching; same trust
+Kent and Medway NHS and Social Care Partnership Trust,RXY,Renamed Kent and Medway Mental Health Trust; same trust
+Royal Surrey County Hospital NHS Foundation Trust,RA2,Renamed Royal Surrey Hospital; same trust
+University Hospitals Bristol and Weston NHS Foundation Trust,RA7,Pre-merger score; RA7 became Bristol NHS FT on 1 Jul 2026
+Warrington and Halton Teaching Hospitals NHS Foundation Trust,RWW,Pre-merger score; RWW became North Cheshire and Mersey NHS FT on 1 Apr 2026
+Tavistock and Portman NHS Foundation Trust,RNK,Pre-merger score; joined North London NHS FT on 1 Apr 2026
+Bridgewater Community Healthcare NHS Foundation Trust,RY2,Pre-merger score; joined Warrington and Halton on 1 Apr 2026
+Cambridgeshire Community Services NHS Trust,RYV,Pre-merger score. To verify code against ODS
+Norfolk Community Health and Care NHS Trust,RY3,Pre-merger score; RY3 retained for the merged trust
+East and North Hertfordshire NHS Trust,RWH,Only used if the code exists in our organisations. To verify against ODS

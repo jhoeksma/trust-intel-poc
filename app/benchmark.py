@@ -31,11 +31,12 @@ GROUP_LABELS = {"acute": "Acute trusts", "mhc": "Mental health and community tru
                 "other": "Other organisations"}
 SOURCE_LABELS = {"nof": "Oversight Framework", "rtt": "Waiting times (RTT)", "cqc": "CQC quality ratings",
                  "workforce": "Workforce", "eric": "Estates (ERIC, trust)", "eric_site": "Estates (ERIC, sites)",
-                 "hes": "Hospital activity (HES)"}
+                 "hes": "Hospital activity (HES)", "dma": "Digital maturity (DMA)"}
 
 # Direction in which a metric is "good". Anything not listed is neutral: ranked highest first, never coloured.
 HIGHER_BETTER = {"cqc:overall", "cqc:safe", "cqc:effective", "cqc:caring", "cqc:responsive", "cqc:well_led",
-                 "cqc:use_of_resources", "cqc:combined_quality", "rtt:pct_within_18_weeks"}
+                 "cqc:use_of_resources", "cqc:combined_quality", "rtt:pct_within_18_weeks", "nof:of0079", "nof:of0081"} | {
+    "dma:overall"} | {"dma:pillar_" + k for k in ("well_led", "smart_foundations", "safe_practice", "support_workforce", "empower_people", "improve_care", "healthy_populations")}
 LOWER_BETTER = {"nof:of5200", "nof:of5202", "nof:of5203", "nof:of5204", "nof:league_rank",
                 "rtt:incomplete_over_18_weeks", "rtt:incomplete_over_52_weeks", "rtt:pct_over_52_weeks",
                 "rtt:incomplete_median_wait_weeks", "rtt:incomplete_p92_wait_weeks",

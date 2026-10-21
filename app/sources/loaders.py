@@ -475,6 +475,9 @@ def get_loader(name: str):
     if name == "cqc":
         from app.sources.cqc import load_cqc
         return load_cqc
+    if name == "dma":
+        from app.sources.dma import load_dma
+        return load_dma
     if name == "nof":
         from app.sources.nof import load_nof
         return load_nof

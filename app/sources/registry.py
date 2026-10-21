@@ -149,5 +149,18 @@ SOURCES: dict[str, SourceSpec] = {
             note="Ratings stored 1 Inadequate to 4 Outstanding. Most NHS providers carry no ODS code in the file, so they are matched by name "
             "(flagged name_match); fixes go in data/reference/cqc_overrides.csv. Load after the other sources.",
         ),
+        SourceSpec(
+            key="dma",
+            name="Digital Maturity Assessment 2024 and 2025: trust digital maturity scores",
+            owner="NHS England",
+            cadence="Annual",
+            index_urls=(),
+            seed_urls=("file://data/manual/DMA%20-%202025%20-%20Results%20data%20file%20v2.xlsx",),
+            loader="dma",
+            licence="Open Government Licence v3.0; NHS England",
+            note="Supplied by Jon (21 Oct 2026), published 30 March 2026, committed (public data). The file has no ODS codes, so "
+            "providers are matched by name (fixes in data/reference/dma_overrides.csv). Overall score is for comparable domains only. "
+            "Multi-service trusts have one row per care setting; the headline uses the primary setting. Load after the other sources.",
+        ),
     ]
 }

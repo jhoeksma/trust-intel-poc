@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0 - 2026-10-21
+
+- New source `dma`: NHS England Digital Maturity Assessment 2024 and 2025 results data file v2 (published 30 March 2026, supplied by Jon, committed under data/manual). Loads the overall score for 2025 and 2024 (`dma:overall`, comparable domains only) and the seven 2025 pillar scores (`dma:pillar_*`: well led, smart foundations, safe practice, support workforce, empower people, improve care, healthy populations), plus `dma:care_setting`. Scores are 1 to 5. ICB sheets are not loaded.
+- The file has no ODS codes, so providers are matched by normalised name; hand fixes in `data/reference/dma_overrides.csv` (an override must point at a known organisation). Unmatched names are listed in the file profile. Multi-service trusts have one row per care setting (285 rows, 204 trusts): the headline is the primary setting (acute, ambulance, mental health, community), other settings kept as `dma:overall_<setting>`.
+- New tab "Digital maturity" and `GET /api/dma/correlation?group=&subtype=`: forest plot of rank correlations (Spearman, 95% interval) between DMA and NOF score, NOF segment, league rank, CQC overall and well-led, finance (domain score, planned surplus/deficit, variance to plan, override) and RTT, all signed so positive means more mature trusts do better; scatter plot, DMA-quartile comparison, pillar by outcome heat map, caveats, and a ranked trust table. Defaults to acute trusts.
+- Finance is a Q1 2026/27 snapshot only. `nof:of0079` and `nof:of0081` are now treated as higher-is-better; DMA measures as higher-is-better.
+- `requirements.txt`: openpyxl for the workbook.
+- Tests: 67 passing.
+
 ## 0.10.0 - 2026-10-20
 
 - Explorer trend view: for any measure with three or more periods, choose "Trend over time" and 6/12/24 months. Shows the group median, middle half and 10th to 90th percentile band, a faint line per organisation, a highlighted trust, and lists of biggest movers either way (direction-aware where polarity is known). `GET /api/benchmark/metric/trend?code=&group=&subtype=&months=`.

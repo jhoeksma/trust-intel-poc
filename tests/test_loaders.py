@@ -194,3 +194,51 @@ def test_nof_peer_subtype_codes():
     r = load_nof("nof", "NOF - Q1 2026_27 - Trust data - Acute.csv", (hdr + body).encode())
     s = [m for m in r.metrics if m["metric_code"] == "nof:peer_subtype"]
     assert len(s) == 1 and s[0]["value"] == 11.0
+
+
+def _dma_workbook() -> bytes:
+    import io
+    import openpyxl
+    wb = openpyxl.Workbook()
+    wb.active.title = "Introduction "
+    p = wb.create_sheet("SC - 2025 Pillar Summary")
+    p.append([None, "2025 DMA"])
+    p.append([None, "Region", "ICS", "Provider", "Care Setting", "Well Led", "Ensure Smart Foundations", "Safe Practice",
+              "Support Workforce", "Empower People", "Improve Care", "Healthy Populations"])
+    p.append([None, "R", "I", "ALPHA NHS TRUST", "Acute", 2.8, 2.4, 2, 2, 1.9, 2, 1.4])
+    p.append([None, "R", "I", "ALPHA NHS TRUST", "Community", 3, 3, 3, 3, 3, 3, 3])
+    p.append([None, "R", "I", "BETA & GAMMA NHS FOUNDATION TRUST", "Mental Health", 2, 2, 2, 2, 2, 2, 2])
+    p.append([None, "R", "I", "NOBODY NHS TRUST", "Acute", 2, 2, 2, 2, 2, 2, 2])
+    o = wb.create_sheet("SC - 24 vs 25 Overall DMA")
+    o.append([None, "x"])
+    o.append([None, "Region", "ICS", "Provider", "Care Setting", "2025 Average", "2024 Average"])
+    o.append([None, "R", "I", "ALPHA NHS TRUST", "Acute", 2.1, 2.5])
+    o.append([None, "R", "I", "ALPHA NHS TRUST", "Community", 3.2, 3.0])
+    o.append([None, "R", "I", "BETA & GAMMA NHS FOUNDATION TRUST", "Mental Health", 2.0, None])
+    o.append([None, "R", "I", "NOBODY NHS TRUST", "Acute", 2.2, 2.2])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_dma_primary_setting_pillars_and_unmatched():
+    from app.sources.dma import load_dma
+    known = {"RXX": "Alpha NHS Trust", "RYY": "Beta and Gamma NHS Foundation Trust"}
+    r = load_dma("dma", "dma.xlsx", _dma_workbook(), known_orgs=known, overrides={})
+    by = {(m["ods_code"], m["metric_code"], m["period"]): m for m in r.metrics}
+    assert by[("RXX", "dma:overall", "2025")]["value"] == 2.1 and by[("RXX", "dma:overall", "2024")]["value"] == 2.5  # acute is primary
+    assert by[("RXX", "dma:overall_community", "2025")]["value"] == 3.2  # other setting kept apart, not the headline
+    assert by[("RXX", "dma:pillar_well_led", "2025")]["value"] == 2.8  # pillars from the primary setting only
+    assert by[("RXX", "dma:care_setting", "2025")]["value"] == 1
+    assert ("RYY", "dma:overall", "2024") not in by  # blank 2024 not stored as zero
+    assert by[("RYY", "dma:care_setting", "2025")]["value"] == 3
+    assert r.profile["unmatched_providers"] == ["NOBODY NHS TRUST"]
+    assert set(r.orgs) == {"RXX", "RYY"}
+
+
+def test_dma_override_must_point_at_a_known_org():
+    from app.sources.dma import load_dma
+    r = load_dma("dma", "dma.xlsx", _dma_workbook(), known_orgs={"RXX": "Alpha NHS Trust"},
+                 overrides={"nobody": "ZZZ", "beta and gamma": "RXX"})
+    assert "ZZZ" in " ".join(r.profile["unmatched_providers"])  # unknown override code is reported, not created
+    assert "RXX" in {m["ods_code"] for m in r.metrics}

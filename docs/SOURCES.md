@@ -25,3 +25,5 @@ Record-level HES (needs DARS approval). Anything behind a login (including the f
 2. Use the generic loader; write a specialised one in `loaders.py` only if needed, with a test.
 3. Run a refresh, review the profile in the Sources tab, adjust.
 4. Add a row here and a line in CHANGELOG.
+
+| dma | Digital Maturity Assessment 2024 and 2025 (NHS England, published 30 Mar 2026) | Annual | data/manual/DMA - 2025 - Results data file v2.xlsx (seed, supplied by Jon) | No ODS codes in file: matched by name; overall score covers comparable domains only; pillars 2025 only; OGL v3 |
