@@ -6,37 +6,23 @@ conventions. All /api routes and the page sit behind basic auth in production.
 """
 import csv
 import io
-import secrets
 from datetime import date
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.orm import Session
 
-from app import benchmark, dma_analysis, indicators, itspend, systems
+from app import accounts, benchmark, dma_analysis, indicators, itspend, systems
 from app.config import settings
 from app.db import get_db
-from app.models import Metric, Org, RefreshRun, SourceFile, TrustSystem
+from app.accounts import Principal, principal, require_admin, require_auth
+from app.models import Metric, Org, RefreshRun, SourceFile, TrustSystem, User
 from app.pipeline import refresh
 from app.reference import load_reference
 from app.sources.registry import SOURCES
-
-security = HTTPBasic(auto_error=False)
-
-
-def require_auth(creds: HTTPBasicCredentials | None = Depends(security)) -> None:
-    if not settings.auth_required:
-        return
-    if not settings.basic_auth_user or not settings.basic_auth_password:
-        raise HTTPException(503, "Auth is required but BASIC_AUTH_USER / BASIC_AUTH_PASSWORD are not set")
-    ok = creds is not None and secrets.compare_digest(creds.username, settings.basic_auth_user) \
-        and secrets.compare_digest(creds.password, settings.basic_auth_password)
-    if not ok:
-        raise HTTPException(401, "Authentication required", headers={"WWW-Authenticate": "Basic"})
-
 
 app = FastAPI(title="FHI Trust Intelligence PoC", version="0.1.0")
 STATIC = Path(__file__).parent / "static"
@@ -48,9 +34,81 @@ def health(db: Session = Depends(get_db)):
     return {"status": "ok", "env": settings.app_env}
 
 
-@app.get("/", dependencies=[Depends(require_auth)])
-def index():
-    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
+@app.get("/")
+def index(p: Principal | None = Depends(principal)):
+    page = "index.html" if p else "login.html"  # the sign-in page is the only thing served without a session
+    return FileResponse(STATIC / page, headers={"Cache-Control": "no-store"})
+
+
+class RegisterIn(BaseModel):
+    email: str
+    name: str = ""
+    password: str
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/register")
+def auth_register(body: RegisterIn, db: Session = Depends(get_db)):
+    accounts.register(db, body.email, body.name, body.password)
+    return {"ok": True, "message": "Thanks. An FHI admin needs to approve your account before you can sign in."}
+
+
+@app.post("/api/auth/login")
+def auth_login(body: LoginIn, db: Session = Depends(get_db)):
+    uid, name = accounts.login(db, body.email, body.password)
+    resp = JSONResponse({"ok": True, "name": name})
+    resp.set_cookie(accounts.COOKIE, accounts.make_token(uid), max_age=settings.session_days * 86400, httponly=True,
+                    samesite="lax", secure=settings.app_env == "production", path="/")
+    return resp
+
+
+@app.post("/api/auth/logout")
+def auth_logout(response: Response):
+    response.delete_cookie(accounts.COOKIE, path="/")
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def auth_me(p: Principal = Depends(require_auth)):
+    return {"email": p.email, "name": p.name, "is_admin": p.is_admin}
+
+
+def _user_row(u: User) -> dict:
+    return {"id": u.id, "email": u.email, "name": u.name, "status": u.status, "is_admin": u.is_admin,
+            "created_at": u.created_at.isoformat() if u.created_at else None, "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None}
+
+
+@app.get("/api/admin/users", dependencies=[Depends(require_admin)])
+def admin_users(db: Session = Depends(get_db)):
+    order = {"pending": 0, "approved": 1, "disabled": 2}
+    us = db.execute(select(User)).scalars().all()
+    return sorted((_user_row(u) for u in us), key=lambda r: (order.get(r["status"], 3), r["email"]))
+
+
+@app.post("/api/admin/users/{uid}/{action}")
+def admin_user_action(uid: int, action: str, p: Principal = Depends(require_admin), db: Session = Depends(get_db)):
+    """approve | disable | make_admin | remove_admin. An admin cannot disable or demote their own account."""
+    u = db.get(User, uid)
+    if u is None:
+        raise HTTPException(404, "No such user")
+    if action not in ("approve", "disable", "make_admin", "remove_admin"):
+        raise HTTPException(422, "action must be approve, disable, make_admin or remove_admin")
+    if u.email == p.email and action in ("disable", "remove_admin"):
+        raise HTTPException(409, "You cannot do that to your own account")
+    if action == "approve":
+        u.status = "approved"
+    elif action == "disable":
+        u.status = "disabled"
+    elif action == "make_admin":
+        u.is_admin, u.status = True, "approved"
+    else:
+        u.is_admin = False
+    db.commit()
+    return _user_row(u)
 
 
 @app.get("/api/trusts", dependencies=[Depends(require_auth)])
@@ -229,7 +287,7 @@ def runs(db: Session = Depends(get_db)):
              "summary": r.summary, "log": r.log} for r in rs]
 
 
-@app.post("/api/refresh", dependencies=[Depends(require_auth)])
+@app.post("/api/refresh", dependencies=[Depends(require_admin)])
 def trigger_refresh(bg: BackgroundTasks, source: str | None = None):
     if source and source not in SOURCES:
         raise HTTPException(404, f"Unknown source {source}")
@@ -237,7 +295,7 @@ def trigger_refresh(bg: BackgroundTasks, source: str | None = None):
     return {"started": True, "source": source or "all"}
 
 
-@app.post("/api/itspend/import", dependencies=[Depends(require_auth)])
+@app.post("/api/itspend/import", dependencies=[Depends(require_admin)])
 async def import_itspend(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Load FHI's IT-spend workbook (FOI survey). Proprietary: database only. Replaces the previous itspend load."""
     raw = await file.read()
@@ -257,7 +315,7 @@ def systems_options(db: Session = Depends(get_db)):
     return systems.options(db)
 
 
-@app.post("/api/systems/import", dependencies=[Depends(require_auth)])
+@app.post("/api/systems/import", dependencies=[Depends(require_admin)])
 async def import_systems(file: UploadFile = File(...), replace: bool = True, db: Session = Depends(get_db)):
     """Load the trust-to-supplier overlay from CSV.
 

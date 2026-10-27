@@ -45,14 +45,16 @@ tr.me td{background:var(--bg);font-weight:600}
 </head>
 <body>
 <header><h1>Trust Intelligence PoC</h1>
-<nav id="nav"></nav><span class="mute" style="margin-left:auto">Internal spike. Public NHS data joined by ODS code.</span></header>
+<nav id="nav"></nav><span class="mute" style="margin-left:auto">Internal spike. Public NHS data joined by ODS code.</span><span id="who" class="mute"></span></header>
 <main id="main"></main>
 <script>
 var state = {tab: 'dashboard', trusts: [], sort: 'strain', dir: -1, filter: '', cmp: [], fields: null, scope: null, cat: null, gopts: null, typeFilter: '', eview: 'snapshot', emonths: 24, dtype: 'g:acute', dx: 'overall', dy: 'nof_score'};
 var TABS = [['dashboard', 'Dashboard'], ['trust', 'Trust dashboard'], ['explorer', 'Explorer'], ['digital', 'Digital maturity'], ['compare', 'Compare'], ['sources', 'Sources']];
+var ME = null;
 
 function api(path, opts) {
   return fetch(path, opts).then(function (r) {
+    if (r.status === 401) { location.href = '/'; }
     if (!r.ok) { return r.text().then(function (t) { throw new Error(r.status + ' ' + t); }); }
     return r.json();
   });
@@ -64,7 +66,8 @@ function cqcPill(v) { return v ? '<span class="pill c' + v + '" style="min-width
 function pill(s) { return '<span class="pill s' + (s || 0) + '" title="Strain 1 (low) to 5 (high)">' + (s || '–') + '</span>'; }
 
 function nav() {
-  document.getElementById('nav').innerHTML = TABS.map(function (t) {
+  var tabs = TABS.concat(ME && ME.is_admin ? [['users', 'Users']] : []);
+  document.getElementById('nav').innerHTML = tabs.map(function (t) {
     return '<button class="' + (state.tab === t[0] ? 'on' : '') + '" onclick="go(\'' + t[0] + '\')">' + t[1] + '</button>';
   }).join('');
 }
@@ -76,6 +79,7 @@ function go(tab, arg) {
   if (tab === 'digital') { return digitalView(); }
   if (tab === 'compare') { return compareView(); }
   if (tab === 'sources') { return sourcesView(); }
+  if (tab === 'users') { return usersView(); }
 }
 function main(html) { document.getElementById('main').innerHTML = html; }
 
@@ -875,8 +879,12 @@ function sourcesView() {
     h += '</table></div></div><div class="card"><b>Refresh runs</b>' + runs.map(function (r) {
       return '<p><span class="tag">' + esc(r.status) + '</span> ' + esc(r.started_at.slice(0, 16)) + ' (' + esc(r.trigger) + ')<pre>' + esc(r.log) + '</pre></p>';
     }).join('') + '</div>';
-    h += '<div class="card"><b>Installed-systems overlay</b><p class="mute">CSV with columns ods_code, category, supplier, product, contract_end, note.</p>' +
-      '<input type="file" id="sysfile" accept=".csv"> <button class="act" onclick="uploadSystems()">Import</button> <span id="smsg" class="mute"></span></div>';
+    if (ME && ME.is_admin) {
+      h += '<div class="card"><b>Installed-systems overlay</b><p class="mute">FHI master installations CSV (replaces the previous load), or a simple CSV with columns ods_code, category, supplier, product, contract_end, note. Proprietary: stored in the database only.</p>' +
+        '<input type="file" id="sysfile" accept=".csv"> <button class="act" onclick="uploadSystems()">Import</button> <span id="smsg" class="mute"></span></div>' +
+        '<div class="card"><b>IT spend workbook</b><p class="mute">FHI IT spend changes workbook (.xlsx, from the FOI survey). Replaces the previous load. Proprietary: stored in the database only.</p>' +
+        '<input type="file" id="itfile" accept=".xlsx"> <button class="act" onclick="uploadItspend()">Import</button> <span id="imsg" class="mute"></span></div>';
+    }
     main(h);
   }).catch(fail);
 }
@@ -888,12 +896,45 @@ function uploadSystems() {
   var f = document.getElementById('sysfile').files[0];
   if (!f) { return; }
   var fd = new FormData(); fd.append('file', f);
+  document.getElementById('smsg').textContent = 'Importing…';
   api('/api/systems/import', {method: 'POST', body: fd}).then(function (r) {
-    document.getElementById('smsg').textContent = 'Imported ' + r.imported + ' rows. Join rate to public data: ' + Math.round(r.join_rate * 100) + '%. Unmatched: ' + r.codes_not_in_public_data.join(', ');
+    document.getElementById('smsg').textContent = r.format === 'master'
+      ? 'Loaded ' + r.rows_loaded + ' system rows for ' + r.organisations + ' organisations. ' + r.unmapped_organisations + ' organisations not in the reference list (private, devolved, ICBs).'
+      : 'Imported ' + r.imported + ' rows. Join rate to public data: ' + Math.round(r.join_rate * 100) + '%. Unmatched: ' + r.codes_not_in_public_data.join(', ');
+  }).catch(function (e) { document.getElementById('smsg').textContent = e.message; });
+}
+function uploadItspend() {
+  var f = document.getElementById('itfile').files[0];
+  if (!f) { return; }
+  var fd = new FormData(); fd.append('file', f);
+  document.getElementById('imsg').textContent = 'Importing…';
+  api('/api/itspend/import', {method: 'POST', body: fd}).then(function (r) {
+    document.getElementById('imsg').textContent = 'Loaded ' + r.metric_rows + ' values for ' + r.organisations + ' organisations, ' + r.himss_values_loaded + ' HIMSS stages.' +
+      (Object.keys(r.unmapped_fhi_ids).length ? ' Unmapped: ' + Object.values(r.unmapped_fhi_ids).join('; ') : '');
+  }).catch(function (e) { document.getElementById('imsg').textContent = e.message; });
+}
+function usersView() {
+  api('/api/admin/users').then(function (us) {
+    var h = '<div class="card"><b>Team accounts</b><p class="mute">New registrations wait here until you approve them. Anyone with an FHI email address can register; nobody gets in without approval.</p><div class="wrap"><table><tr><th>Email</th><th>Name</th><th>Status</th><th>Admin</th><th>Registered</th><th>Last sign-in</th><th></th></tr>';
+    us.forEach(function (u) {
+      var me = ME && u.email === ME.email;
+      h += '<tr><td>' + esc(u.email) + '</td><td>' + esc(u.name || '–') + '</td><td><span class="tag">' + esc(u.status) + '</span></td><td>' + (u.is_admin ? 'yes' : '') + '</td><td>' + esc((u.created_at || '').slice(0, 10)) + '</td><td>' + esc((u.last_login_at || '').slice(0, 16)) + '</td><td>' +
+        (u.status !== 'approved' ? '<button class="act" onclick="userAct(' + u.id + ',\'approve\')">Approve</button> ' : '') +
+        (u.status === 'approved' && !me ? '<button class="act" onclick="userAct(' + u.id + ',\'disable\')">Disable</button> ' : '') +
+        (u.status === 'approved' && !u.is_admin ? '<button class="act" onclick="userAct(' + u.id + ',\'make_admin\')">Make admin</button>' : '') +
+        (u.is_admin && !me ? '<button class="act" onclick="userAct(' + u.id + ',\'remove_admin\')">Remove admin</button>' : '') + '</td></tr>';
+    });
+    main(h + (us.length ? '' : '<tr><td colspan="7" class="mute">No accounts yet.</td></tr>') + '</table></div></div>');
   }).catch(fail);
 }
+function userAct(id, action) { api('/api/admin/users/' + id + '/' + action, {method: 'POST'}).then(usersView).catch(fail); }
+function signOut() { fetch('/api/auth/logout', {method: 'POST'}).then(function () { location.href = '/'; }); }
 function fail(e) { main('<div class="card dn">' + esc(e.message) + '</div>'); }
-nav(); go('dashboard');
+api('/api/auth/me').then(function (m) {
+  ME = m;
+  document.getElementById('who').innerHTML = esc(m.name || m.email) + (m.email === 'local' ? '' : ' · <a onclick="signOut()" style="cursor:pointer">Sign out</a>');
+  nav(); go('dashboard');
+}).catch(function () { nav(); go('dashboard'); });
 </script>
 </body>
 </html>

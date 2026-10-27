@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in · Trust Intelligence PoC</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2430;--mute:#6b7585;--line:#dde2ea;--accent:#1f5fbf;--bad:#b3261e;--good:#1b7a43}
+@media (prefers-color-scheme:dark){:root{--bg:#12161c;--card:#1b212a;--ink:#e8ecf2;--mute:#9aa5b5;--line:#2c3541;--accent:#6aa3ff;--bad:#ff8a80;--good:#6fd39a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;display:grid;place-items:center;min-height:100vh;padding:16px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:28px;width:100%;max-width:380px}
+h1{font-size:18px;margin:0 0 4px}p{margin:0 0 16px;color:var(--mute);font-size:13px}
+label{display:block;font-size:13px;color:var(--mute);margin:12px 0 4px}
+input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--ink);font:inherit}
+button{margin-top:18px;width:100%;padding:10px;border:0;border-radius:6px;background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.6;cursor:default}
+.msg{margin-top:14px;font-size:13px;min-height:18px}.err{color:var(--bad)}.ok{color:var(--good)}
+a{color:var(--accent);cursor:pointer}.sw{margin-top:16px;font-size:13px;color:var(--mute);text-align:center}
+</style></head><body>
+<form class="box" id="f" autocomplete="on">
+<h1 id="t">Sign in</h1>
+<p>Trust Intelligence PoC. Internal to the FHI team.</p>
+<div id="nm" hidden><label for="name">Your name</label><input id="name" name="name" autocomplete="name"></div>
+<label for="email" id="el">Email</label><input id="email" name="email" autocomplete="username" required>
+<label for="pw">Password</label><input id="pw" name="password" type="password" autocomplete="current-password" required>
+<div id="hint" class="mute" style="font-size:12px;color:var(--mute);margin-top:4px" hidden>At least 12 characters. An admin approves new accounts before first sign-in.</div>
+<button id="go" type="submit">Sign in</button>
+<div class="msg" id="m" role="status"></div>
+<div class="sw" id="sw">New here? <a id="tog">Create an account</a></div>
+</form>
+<script>
+var reg = false;
+function $(i) { return document.getElementById(i); }
+function mode(r) {
+  reg = r;
+  $('t').textContent = r ? 'Create an account' : 'Sign in';
+  $('go').textContent = r ? 'Register' : 'Sign in';
+  $('nm').hidden = !r; $('hint').hidden = !r;
+  $('pw').autocomplete = r ? 'new-password' : 'current-password';
+  $('sw').innerHTML = r ? 'Already registered? <a id="tog">Sign in</a>' : 'New here? <a id="tog">Create an account</a>';
+  $('tog').onclick = function () { mode(!reg); };
+  $('m').textContent = '';
+}
+function say(t, ok) { var m = $('m'); m.textContent = t; m.className = 'msg ' + (ok ? 'ok' : 'err'); }
+$('f').onsubmit = function (e) {
+  e.preventDefault();
+  $('go').disabled = true;
+  var body = reg ? {email: $('email').value, name: $('name').value, password: $('pw').value} : {email: $('email').value, password: $('pw').value};
+  fetch(reg ? '/api/auth/register' : '/api/auth/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+    .then(function (r) { return r.json().then(function (j) { return [r.ok, j]; }); })
+    .then(function (x) {
+      $('go').disabled = false;
+      if (!x[0]) { var d = x[1].detail; say(typeof d === 'string' ? d : 'Check the details and try again.', false); return; }
+      if (reg) { say(x[1].message, true); $('pw').value = ''; } else { location.href = '/'; }
+    }).catch(function () { $('go').disabled = false; say('Could not reach the server.', false); });
+};
+mode(false);
+</script></body></html>

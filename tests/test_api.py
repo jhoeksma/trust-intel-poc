@@ -391,3 +391,83 @@ def test_itspend_import_joins_on_fhi_id_and_reports_unmapped(client, monkeypatch
     # re-upload replaces, never duplicates
     client.post("/api/itspend/import", files={"file": ("it.xlsx", io.BytesIO(_itspend_book()), "application/octet-stream")})
     assert db.query(Metric).filter_by(ods_code="RXX", metric_code="itspend:it_spend").count() == 3
+
+
+@pytest.fixture
+def secured(client, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "auth_required", True)
+    monkeypatch.setattr(settings, "basic_auth_user", "admin")
+    monkeypatch.setattr(settings, "basic_auth_password", "break-glass-pw")
+    return client
+
+
+def _register(c, email="sam@futurehealthintelligence.com", pw="a-long-enough-pw"):
+    return c.post("/api/auth/register", json={"email": email, "name": "Sam", "password": pw})
+
+
+def test_register_needs_allowed_domain_and_strong_password(secured):
+    assert _register(secured, "x@gmail.com").status_code == 403
+    assert _register(secured, pw="short").status_code == 422
+    assert _register(secured, "not-an-email").status_code == 422
+    assert _register(secured).status_code == 200
+
+
+def test_pending_account_cannot_sign_in_until_approved_then_sessions_work(secured):
+    _register(secured)
+    r = secured.post("/api/auth/login", json={"email": "sam@futurehealthintelligence.com", "password": "a-long-enough-pw"})
+    assert r.status_code == 403 and "approve" in r.json()["detail"]
+    assert secured.get("/api/trusts").status_code == 401
+    users = secured.get("/api/admin/users", auth=("admin", "break-glass-pw")).json()
+    uid = users[0]["id"]
+    assert users[0]["status"] == "pending"
+    assert secured.post(f"/api/admin/users/{uid}/approve", auth=("admin", "break-glass-pw")).json()["status"] == "approved"
+    r = secured.post("/api/auth/login", json={"email": "Sam@FutureHealthIntelligence.com", "password": "a-long-enough-pw"})
+    assert r.status_code == 200 and "fhi_session" in r.headers["set-cookie"] and "HttpOnly" in r.headers["set-cookie"]
+    assert secured.get("/api/trusts").status_code == 200  # cookie jar carries the session
+    assert secured.get("/api/auth/me").json()["is_admin"] is False
+    # a team member can read but cannot approve people, upload data or trigger refreshes
+    assert secured.get("/api/admin/users").status_code == 403
+    assert secured.post("/api/refresh").status_code == 403
+    assert secured.post("/api/itspend/import", files={"file": ("x.xlsx", io.BytesIO(b"x"))}).status_code == 403
+    # disabling takes effect on the next request
+    secured.post(f"/api/admin/users/{uid}/disable", auth=("admin", "break-glass-pw"))
+    assert secured.get("/api/trusts").status_code == 401
+
+
+def test_page_serves_sign_in_without_a_session_and_app_with_one(secured):
+    assert "Sign in" in secured.get("/").text and "Trust Intelligence PoC" in secured.get("/").text
+    assert "id=\"nav\"" not in secured.get("/").text
+    secured.post("/api/auth/login", json={"email": "admin", "password": "break-glass-pw"})
+    assert "id=\"nav\"" in secured.get("/").text
+    assert secured.get("/api/auth/me").json()["is_admin"] is True
+
+
+def test_wrong_passwords_lock_the_account_and_give_nothing_away(secured):
+    _register(secured)
+    uid = secured.get("/api/admin/users", auth=("admin", "break-glass-pw")).json()[0]["id"]
+    secured.post(f"/api/admin/users/{uid}/approve", auth=("admin", "break-glass-pw"))
+    bad = {"email": "sam@futurehealthintelligence.com", "password": "wrong-wrong-wrong"}
+    codes = [secured.post("/api/auth/login", json=bad).status_code for _ in range(5)]
+    assert codes == [401] * 5
+    assert secured.post("/api/auth/login", json=bad).status_code == 429
+    good = {"email": "sam@futurehealthintelligence.com", "password": "a-long-enough-pw"}
+    assert secured.post("/api/auth/login", json=good).status_code == 429  # still locked
+    nobody = secured.post("/api/auth/login", json={"email": "ghost@futurehealthintelligence.com", "password": "whatever-whatever"})
+    assert nobody.status_code == 401 and nobody.json()["detail"] == "Wrong email or password"
+
+
+def test_tampered_or_expired_session_is_rejected(secured):
+    from app import accounts
+    t = accounts.make_token(1)
+    assert accounts.read_token(t) == 1
+    assert accounts.read_token(t[:-2] + "xx") is None and accounts.read_token("garbage") is None and accounts.read_token(None) is None
+
+
+def test_admin_cannot_disable_or_demote_themselves(secured):
+    _register(secured, "jon@futurehealthintelligence.com")
+    uid = secured.get("/api/admin/users", auth=("admin", "break-glass-pw")).json()[0]["id"]
+    secured.post(f"/api/admin/users/{uid}/make_admin", auth=("admin", "break-glass-pw"))
+    secured.post("/api/auth/login", json={"email": "jon@futurehealthintelligence.com", "password": "a-long-enough-pw"})
+    assert secured.post(f"/api/admin/users/{uid}/disable").status_code == 409
+    assert secured.post(f"/api/admin/users/{uid}/remove_admin").status_code == 409

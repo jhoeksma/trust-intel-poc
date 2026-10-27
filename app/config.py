@@ -29,6 +29,19 @@ class Settings:
         self.max_download_mb = int(os.getenv("MAX_DOWNLOAD_MB", "250"))
         self.max_metric_rows_per_file = int(os.getenv("MAX_METRIC_ROWS_PER_FILE", "400000"))
         self.auth_required = self.app_env == "production"
+        # Registration: only these email domains (and any individually listed addresses) may sign up, and every new account
+        # waits for an admin to approve it. There is no email verification, so the approval step is the real gate.
+        self.allowed_email_domains = [d.strip().lower() for d in os.getenv("ALLOWED_EMAIL_DOMAINS", "futurehealthintelligence.com").split(",") if d.strip()]
+        self.allowed_emails = [e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "").split(",") if e.strip()]
+        self.session_days = int(os.getenv("SESSION_DAYS", "7"))
+        self._session_secret = os.getenv("SESSION_SECRET", "")
+
+
+    @property
+    def session_secret(self) -> bytes:
+        """SESSION_SECRET if set, else derived from the admin password so sessions survive restarts without extra setup."""
+        import hashlib
+        return (self._session_secret or hashlib.sha256(("fhi-session|" + self.basic_auth_password).encode()).hexdigest()).encode()
 
 
 settings = Settings()

@@ -95,3 +95,20 @@ class RefreshRun(Base):
     trigger: Mapped[str | None] = mapped_column(String(30))
     summary: Mapped[dict | None] = mapped_column(JSON)
     log: Mapped[str | None] = mapped_column(Text)
+
+
+class User(Base):
+    """A team member's login. Self-registered accounts start `pending` and need an admin to approve them."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(200))
+    password_hash: Mapped[str] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | approved | disabled
+    is_admin: Mapped[bool] = mapped_column(default=False)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

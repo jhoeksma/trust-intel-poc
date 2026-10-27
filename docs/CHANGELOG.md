@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.0 - 2026-10-27
+
+- Registration and login for the FHI team. The page now opens on a sign-in form (`/` serves it without a session); API calls without a session return 401 and the app sends you back to sign in. Sessions are an HMAC-signed HttpOnly, SameSite=Lax cookie (Secure in production), 7 days (`SESSION_DAYS`), re-checked against the user row on every request so disabling an account bites immediately.
+- Registration is limited to `ALLOWED_EMAIL_DOMAINS` (default futurehealthintelligence.com) plus any addresses in `ALLOWED_EMAILS`, needs a password of 12+ characters (scrypt), and every new account is `pending` until an admin approves it. There is no email verification, so approval is the gate. Five wrong passwords lock an account for 15 minutes; unknown emails and wrong passwords give the same answer.
+- The existing `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` stay as the break-glass admin: they still work over HTTP Basic for scripts, and on the sign-in form (enter the username in the email box). Use that for the first sign-in, then approve people from the new Users tab and make colleagues admins as needed.
+- Admin only: Users tab, `/api/admin/users`, and the data-changing endpoints (`/api/refresh`, `/api/systems/import`, `/api/itspend/import`). Everyone else, once approved, can read everything. Sources tab gains an IT spend upload beside the installed-systems upload.
+- Migration 0003 adds `users`. Optional `SESSION_SECRET`; without it the secret is derived from the admin password.
+- Tests: 78 passing.
+
 ## 0.14.0 - 2026-10-21
 
 - IT spend: FHI's FOI-survey workbook loads as source `itspend` through `POST /api/itspend/import` (or `python -m scripts.load_itspend file.xlsx`). Metrics: `itspend:it_spend`, `itspend:total_expenditure` (GBP) and `itspend:it_spend_pct` for 2022/23, 2023/24 and 2024/25, plus `itspend:himss_emram` and `itspend:himss_infram` (stage 0-7, survey Jan 2026). Joined on FHI Trust ID, the same key as the installed-systems file. Proprietary: database only, upload replaces the previous load.
