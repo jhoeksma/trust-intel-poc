@@ -916,23 +916,41 @@ function uploadItspend() {
 function usersView() {
   api('/api/admin/users').then(function (us) {
     var h = '<div class="card"><b>Team accounts</b><p class="mute">New registrations wait here until you approve them. Anyone with an FHI email address can register; nobody gets in without approval.</p><div class="wrap"><table><tr><th>Email</th><th>Name</th><th>Status</th><th>Admin</th><th>Registered</th><th>Last sign-in</th><th></th></tr>';
+    USERS = {};
     us.forEach(function (u) {
+      USERS[u.id] = u.email;
       var me = ME && u.email === ME.email;
       h += '<tr><td>' + esc(u.email) + '</td><td>' + esc(u.name || '–') + '</td><td><span class="tag">' + esc(u.status) + '</span></td><td>' + (u.is_admin ? 'yes' : '') + '</td><td>' + esc((u.created_at || '').slice(0, 10)) + '</td><td>' + esc((u.last_login_at || '').slice(0, 16)) + '</td><td>' +
         (u.status !== 'approved' ? '<button class="act" onclick="userAct(' + u.id + ',\'approve\')">Approve</button> ' : '') +
         (u.status === 'approved' && !me ? '<button class="act" onclick="userAct(' + u.id + ',\'disable\')">Disable</button> ' : '') +
         (u.status === 'approved' && !u.is_admin ? '<button class="act" onclick="userAct(' + u.id + ',\'make_admin\')">Make admin</button>' : '') +
-        (u.is_admin && !me ? '<button class="act" onclick="userAct(' + u.id + ',\'remove_admin\')">Remove admin</button>' : '') + '</td></tr>';
+        (u.is_admin && !me ? '<button class="act" onclick="userAct(' + u.id + ',\'remove_admin\')">Remove admin</button> ' : '') +
+        '<button class="act" onclick="resetPw(' + u.id + ')">Reset password</button></td></tr>';
     });
     main(h + (us.length ? '' : '<tr><td colspan="7" class="mute">No accounts yet.</td></tr>') + '</table></div></div>');
   }).catch(fail);
+}
+var USERS = {};
+function resetPw(id) {
+  var email = USERS[id] || 'this user';
+  if (!confirm('Reset the password for ' + email + '? Their current password stops working and any lockout is cleared.')) { return; }
+  api('/api/admin/users/' + id + '/reset_password', {method: 'POST'}).then(function (r) {
+    usersView();
+    setTimeout(function () { prompt('Temporary password for ' + email + '. Copy it now, it is not shown again. Ask them to change it after signing in.', r.temporary_password); }, 300);
+  }).catch(fail);
+}
+function changePw() {
+  var cur = prompt('Current password'); if (cur === null) { return; }
+  var nw = prompt('New password (12 characters or more)'); if (nw === null) { return; }
+  api('/api/auth/change_password', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({current_password: cur, new_password: nw})})
+    .then(function () { alert('Password changed.'); }).catch(function (e) { alert(String(e.message).replace(/^\d+\s*/, '').replace(/^\{"detail":"(.*)"\}$/, '$1')); });
 }
 function userAct(id, action) { api('/api/admin/users/' + id + '/' + action, {method: 'POST'}).then(usersView).catch(fail); }
 function signOut() { fetch('/api/auth/logout', {method: 'POST'}).then(function () { location.href = '/'; }); }
 function fail(e) { main('<div class="card dn">' + esc(e.message) + '</div>'); }
 api('/api/auth/me').then(function (m) {
   ME = m;
-  document.getElementById('who').innerHTML = esc(m.name || m.email) + (m.email === 'local' ? '' : ' · <a onclick="signOut()" style="cursor:pointer">Sign out</a>');
+  document.getElementById('who').innerHTML = esc(m.name || m.email) + (m.email === 'local' ? '' : ' · <a onclick="changePw()" style="cursor:pointer">Change password</a> · <a onclick="signOut()" style="cursor:pointer">Sign out</a>');
   nav(); go('dashboard');
 }).catch(function () { nav(); go('dashboard'); });
 </script>

@@ -471,3 +471,56 @@ def test_admin_cannot_disable_or_demote_themselves(secured):
     secured.post("/api/auth/login", json={"email": "jon@futurehealthintelligence.com", "password": "a-long-enough-pw"})
     assert secured.post(f"/api/admin/users/{uid}/disable").status_code == 409
     assert secured.post(f"/api/admin/users/{uid}/remove_admin").status_code == 409
+
+
+def _approved_user(c, email="sam@futurehealthintelligence.com", pw="a-long-enough-pw"):
+    _register(c, email, pw)
+    users = c.get("/api/admin/users", auth=("admin", "break-glass-pw")).json()
+    uid = next(u["id"] for u in users if u["email"] == email)
+    c.post(f"/api/admin/users/{uid}/approve", auth=("admin", "break-glass-pw"))
+    return uid
+
+
+def test_admin_reset_gives_one_off_password_and_clears_lockout(secured):
+    uid = _approved_user(secured)
+    bad = {"email": "sam@futurehealthintelligence.com", "password": "wrong-wrong-wrong"}
+    for _ in range(5):
+        secured.post("/api/auth/login", json=bad)
+    assert secured.post("/api/auth/login", json=bad).status_code == 429  # locked out
+    r = secured.post(f"/api/admin/users/{uid}/reset_password", auth=("admin", "break-glass-pw"))
+    temp = r.json()["temporary_password"]
+    assert r.status_code == 200 and len(temp) >= 12 and "password_hash" not in r.json()
+    old = {"email": "sam@futurehealthintelligence.com", "password": "a-long-enough-pw"}
+    assert secured.post("/api/auth/login", json=old).status_code == 401  # old password is dead, lockout is gone
+    assert secured.post("/api/auth/login", json={**old, "password": temp}).status_code == 200
+    # the temporary password is not listed anywhere
+    assert temp not in secured.get("/api/admin/users", auth=("admin", "break-glass-pw")).text
+
+
+def test_reset_does_not_approve_and_is_admin_only(secured):
+    _register(secured)
+    uid = secured.get("/api/admin/users", auth=("admin", "break-glass-pw")).json()[0]["id"]
+    temp = secured.post(f"/api/admin/users/{uid}/reset_password", auth=("admin", "break-glass-pw")).json()["temporary_password"]
+    assert secured.get("/api/admin/users", auth=("admin", "break-glass-pw")).json()[0]["status"] == "pending"
+    secured.post(f"/api/admin/users/{uid}/approve", auth=("admin", "break-glass-pw"))
+    secured.post("/api/auth/login", json={"email": "sam@futurehealthintelligence.com", "password": temp})
+    assert secured.post(f"/api/admin/users/{uid}/reset_password").status_code == 403  # a team member cannot reset anyone
+
+
+def test_change_password_needs_current_and_rejects_weak_or_same(secured):
+    _approved_user(secured)
+    secured.post("/api/auth/login", json={"email": "sam@futurehealthintelligence.com", "password": "a-long-enough-pw"})
+    url = "/api/auth/change_password"
+    assert secured.post(url, json={"current_password": "nope-nope-nope", "new_password": "another-long-one"}).status_code == 422
+    assert secured.post(url, json={"current_password": "a-long-enough-pw", "new_password": "short"}).status_code == 422
+    assert secured.post(url, json={"current_password": "a-long-enough-pw", "new_password": "a-long-enough-pw"}).status_code == 422
+    assert secured.post(url, json={"current_password": "a-long-enough-pw", "new_password": "another-long-one"}).status_code == 200
+    login = {"email": "sam@futurehealthintelligence.com"}
+    assert secured.post("/api/auth/login", json={**login, "password": "a-long-enough-pw"}).status_code == 401
+    assert secured.post("/api/auth/login", json={**login, "password": "another-long-one"}).status_code == 200
+
+
+def test_break_glass_admin_has_no_password_to_change(secured):
+    secured.post("/api/auth/login", json={"email": "admin", "password": "break-glass-pw"})
+    r = secured.post("/api/auth/change_password", json={"current_password": "break-glass-pw", "new_password": "something-else-long"})
+    assert r.status_code == 409 and "BASIC_AUTH_PASSWORD" in r.json()["detail"]

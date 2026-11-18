@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.16.0 - 2026-11-18
+
+- Password reset without email. Admins get a "Reset password" button on the Users tab (`POST /api/admin/users/{id}/reset_password`). It sets a random 16-character temporary password, clears any lockout, and returns the password once in the response; it is not stored anywhere readable. Resetting a pending or disabled account does not approve it.
+- Self-service change: a "Change password" link in the header (`POST /api/auth/change_password`) takes the current and a new password (12+ characters, different from the current one). A wrong current password counts towards the same five-strikes lockout and returns 422, not 401, because the page treats 401 as "signed out". The break-glass admin has no stored password, so it gets a 409 pointing at the `BASIC_AUTH_PASSWORD` variable on Railway.
+- Known limit: a reset does not end sessions that are already signed in; they expire after `SESSION_DAYS`. Disable the account first if that matters. Changing `BASIC_AUTH_PASSWORD` signs everyone out unless `SESSION_SECRET` is set.
+- No migration. Tests: 82 passing.
+
 ## 0.15.0 - 2026-10-27
 
 - Registration and login for the FHI team. The page now opens on a sign-in form (`/` serves it without a session); API calls without a session return 401 and the app sends you back to sign in. Sessions are an HMAC-signed HttpOnly, SameSite=Lax cookie (Secure in production), 7 days (`SESSION_DAYS`), re-checked against the user row on every request so disabling an account bites immediately.

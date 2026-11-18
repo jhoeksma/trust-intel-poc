@@ -21,6 +21,11 @@ Push to `main`; CI must pass. Trigger a deploy with a new `CACHE_BUST` variable 
 ## First run
 Open Sources and press Refresh, or run `python -m scripts.refresh`. Review each file's profile, then tighten mappers. `needs_review` means no usable mapping was found.
 
+## Accounts
+- New registrations are `pending` until an admin approves them in the Users tab. Only futurehealthintelligence.com addresses (or `ALLOWED_EMAILS`) can register.
+- Forgotten password: an admin presses Reset password on the Users tab and passes on the temporary password; the person signs in and uses Change password. Registering again does nothing for an existing address.
+- Forgotten admin password: it is the `BASIC_AUTH_PASSWORD` variable on the web service. Sign in with username `fhi` typed in the email box. Changing it signs everyone out unless `SESSION_SECRET` is set.
+
 ## Troubleshooting
 - `discovery_failed`: NHS changed an index page. Open the profile for `links_seen`, adjust the regexes in the registry, or update `seed_urls`.
 - `download_failed`: check host reachability from Railway and the size cap.

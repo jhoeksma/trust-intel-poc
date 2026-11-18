@@ -9,6 +9,8 @@ Design, kept deliberately small:
 - The existing BASIC_AUTH_USER / BASIC_AUTH_PASSWORD still work as the break-glass admin: over HTTP Basic (scripts) and on the
   sign-in form (username instead of email). That is how the first admin approves everyone else.
 - Five wrong passwords lock the account for 15 minutes.
+- No email service, so no self-service "forgot password". An admin resets a password from the Users tab: that sets a one-off
+  temporary password (shown to the admin once), clears any lockout, and the person changes it after signing in.
 """
 import base64
 import hashlib
@@ -161,3 +163,29 @@ def login(db: Session, ident: str, password: str) -> tuple[int, str]:
     u.failed_logins, u.locked_until, u.last_login_at = 0, None, now
     db.commit()
     return u.id, u.name or u.email
+
+
+def reset_password(db: Session, u: User) -> str:
+    """Admin reset: set a random temporary password, clear any lockout, return the password once. Status is left as it is,
+    so resetting a pending or disabled account does not approve it."""
+    temp = secrets.token_urlsafe(12)  # 16 characters, above MIN_PASSWORD
+    u.password_hash, u.failed_logins, u.locked_until = hash_password(temp), 0, None
+    db.commit()
+    return temp
+
+
+def change_password(db: Session, u: User, current: str, new: str) -> None:
+    """Self-service change. A wrong current password counts towards the same lockout as a wrong sign-in."""
+    now = datetime.now(timezone.utc)
+    if not check_password(current, u.password_hash):
+        u.failed_logins = (u.failed_logins or 0) + 1
+        if u.failed_logins >= MAX_FAILS:
+            u.locked_until, u.failed_logins = now + timedelta(minutes=LOCK_MINUTES), 0
+        db.commit()
+        raise HTTPException(422, "Current password is wrong")  # not 401: the page treats 401 as "signed out"
+    if len(new) < MIN_PASSWORD:
+        raise HTTPException(422, f"Password must be at least {MIN_PASSWORD} characters")
+    if new == current:
+        raise HTTPException(422, "Choose a different password from the current one")
+    u.password_hash, u.failed_logins, u.locked_until = hash_password(new), 0, None
+    db.commit()
