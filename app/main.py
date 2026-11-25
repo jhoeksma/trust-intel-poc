@@ -77,6 +77,20 @@ def auth_me(p: Principal = Depends(require_auth)):
     return {"email": p.email, "name": p.name, "is_admin": p.is_admin}
 
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/auth/change_password")
+def auth_change_password(body: ChangePasswordIn, p: Principal = Depends(require_auth), db: Session = Depends(get_db)):
+    u = db.execute(select(User).where(User.email == p.email)).scalar_one_or_none() if p.via == "session" else None
+    if u is None:
+        raise HTTPException(409, "This sign-in has no stored password. The admin password is the BASIC_AUTH_PASSWORD variable on Railway.")
+    accounts.change_password(db, u, body.current_password, body.new_password)
+    return {"ok": True}
+
+
 def _user_row(u: User) -> dict:
     return {"id": u.id, "email": u.email, "name": u.name, "status": u.status, "is_admin": u.is_admin,
             "created_at": u.created_at.isoformat() if u.created_at else None, "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None}
@@ -91,12 +105,13 @@ def admin_users(db: Session = Depends(get_db)):
 
 @app.post("/api/admin/users/{uid}/{action}")
 def admin_user_action(uid: int, action: str, p: Principal = Depends(require_admin), db: Session = Depends(get_db)):
-    """approve | disable | make_admin | remove_admin. An admin cannot disable or demote their own account."""
+    """approve | disable | make_admin | remove_admin | reset_password. An admin cannot disable or demote their own account.
+    reset_password returns a one-off temporary password in the response; it is not stored anywhere readable."""
     u = db.get(User, uid)
     if u is None:
         raise HTTPException(404, "No such user")
-    if action not in ("approve", "disable", "make_admin", "remove_admin"):
-        raise HTTPException(422, "action must be approve, disable, make_admin or remove_admin")
+    if action not in ("approve", "disable", "make_admin", "remove_admin", "reset_password"):
+        raise HTTPException(422, "action must be approve, disable, make_admin, remove_admin or reset_password")
     if u.email == p.email and action in ("disable", "remove_admin"):
         raise HTTPException(409, "You cannot do that to your own account")
     if action == "approve":
@@ -105,6 +120,8 @@ def admin_user_action(uid: int, action: str, p: Principal = Depends(require_admi
         u.status = "disabled"
     elif action == "make_admin":
         u.is_admin, u.status = True, "approved"
+    elif action == "reset_password":
+        return {**_user_row(u), "temporary_password": accounts.reset_password(db, u)}
     else:
         u.is_admin = False
     db.commit()
